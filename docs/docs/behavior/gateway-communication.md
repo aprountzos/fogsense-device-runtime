@@ -19,6 +19,8 @@ The device calls three endpoints on the gateway:
 | `POST` | `/devices/{id}/telemetry` | Send telemetry batches |
 | `POST` | `/devices/{id}/events` | Send events (state changes, status changes) |
 
+The full gateway contract is defined in [contract/gateway-api.openapi.yaml](../../../contract/gateway-api.openapi.yaml), and the device-side API is documented in [contract/device-api.openapi.yaml](../../../contract/device-api.openapi.yaml).
+
 ## Registration & Heartbeat
 
 The device registers with the gateway at startup and periodically re-registers as a heartbeat:

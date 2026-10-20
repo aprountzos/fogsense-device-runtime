@@ -1,9 +1,17 @@
 # Local playground: a mock gateway + two devices.
-#   docker compose -f docker-compose.example.yml up --build
-# Then look at the gateway's log, or:  curl localhost:8081/debug/devices
 #
-# NOTE: written for the course; not run through Docker by the author of the files,
-# if something is off, the env vars below are the whole contract.
+#   docker compose -f docker-compose.example.yml up --build
+#
+# The mock gateway prints every registration and message it receives:
+#   docker compose -f docker-compose.example.yml logs -f mock-gateway
+#
+# The device ports are published so you can talk to a device from your machine.
+# The devices run with DEVICE_TOKEN=demo-token, so their API needs the header:
+#
+#   bash:        curl -H "X-Device-Token: demo-token" http://localhost:8080/info
+#   PowerShell:  curl.exe -H "X-Device-Token: demo-token" http://localhost:8080/info
+#
+# (In PowerShell plain `curl` is an alias of Invoke-WebRequest; use curl.exe or Invoke-RestMethod.)
 
 services:
   mock-gateway:
@@ -24,6 +32,8 @@ services:
       DEVICE_SPEC_FILE: /config/spec.yaml
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
+    ports:
+      - "8080:8080"
 
   sensor-1:
     build: .
@@ -37,3 +47,5 @@ services:
       TIME_SCALE: "2"
     volumes:
       - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
+    ports:
+      - "8082:8080"

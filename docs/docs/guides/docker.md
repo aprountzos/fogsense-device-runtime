@@ -30,7 +30,9 @@ docker run --rm --name light-1 \
 ```
 
 
-:::tip macOS
+:::tip
+**macOS**
+
 On macOS, `base64` doesn't support `-w0`. Use:
 
 ```bash

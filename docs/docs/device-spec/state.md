@@ -113,6 +113,8 @@ The device API exposes the current state via `GET /state`:
 }
 ```
 
-:::warning No Persistence
+:::warning
+**No Persistence**
+
 State is **not persisted** across restarts. Each boot starts from the `initial` values defined in the spec.
 :::

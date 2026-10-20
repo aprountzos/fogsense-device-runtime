@@ -3,8 +3,25 @@
 /** @type {import('@docusaurus/plugin-content-docs').SidebarsConfig} */
 const sidebars = {
   docsSidebar: [
-    'intro',
-    'getting-started',
+    {
+      type: 'category',
+      label: 'Start Here',
+      collapsed: false,
+      items: [
+        'intro',
+        'getting-started',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Architecture & Behavior',
+      collapsed: false,
+      items: [
+        'behavior/simulation-loop',
+        'behavior/offline-mode',
+        'behavior/gateway-communication',
+      ],
+    },
     {
       type: 'category',
       label: 'Device Spec',
@@ -19,17 +36,10 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: 'Runtime Behavior',
+      label: 'API & Contracts',
+      collapsed: false,
       items: [
-        'behavior/simulation-loop',
-        'behavior/offline-mode',
-        'behavior/gateway-communication',
-      ],
-    },
-    {
-      type: 'category',
-      label: 'API Reference',
-      items: [
+        'api/contracts',
         'api/device-api',
         'api/gateway-api',
       ],
@@ -37,11 +47,12 @@ const sidebars = {
     {
       type: 'category',
       label: 'Guides',
+      collapsed: false,
       items: [
+        'guides/configuration',
         'guides/docker',
         'guides/mock-gateway',
         'guides/testing',
-        'guides/configuration',
       ],
     },
   ],

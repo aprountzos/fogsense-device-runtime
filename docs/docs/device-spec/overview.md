@@ -7,11 +7,11 @@ sidebar_position: 1
 
 # Device Spec Overview
 
-The device spec is a YAML document that **completely describes** a simulated IoT device. The runtime reads this spec at startup and uses it to generate telemetry, manage state, and handle commands: no per-device-type code is needed.
+A device spec is the complete definition of a simulated device. It tells the runtime which telemetry to emit, which state to maintain, and which commands are valid.
 
-## Structure
+## At a glance
 
-A device spec has the following top-level fields:
+A spec is just a YAML document with a small set of top-level fields:
 
 ```yaml
 type: smart-light
@@ -39,28 +39,26 @@ At least one of `telemetry` or `state` must be non-empty. A device with neither 
 
 ## Validation
 
-The runtime validates the spec at startup using both:
+The runtime validates each spec at startup in two passes:
 
-1. **Structural validation**: against the schema at `contract/device-spec.schema.yaml`
-2. **Semantic validation**: cross-field rules enforced by `pkg/spec/spec.go`
+1. **Schema validation** against the YAML contract
+2. **Semantic validation** for cross-field rules enforced in code
 
-If validation fails, the container **refuses to start**, prints all errors as structured log lines, and exits with code `2`.
+If validation fails, the runtime exits immediately and prints structured errors. The container does not start in a partially valid state.
 
-### Semantic Rules
+### Key semantic rules
 
-These rules cannot be expressed in schema alone and are enforced in code:
+These are the most important invariants enforced by the runtime:
 
-1. Names must be unique within telemetry, within state, and within commands
-2. `min < max` everywhere (metrics, numeric state fields, numeric params)
-3. Every key in a command's `effects` must be an existing state field
-4. An effect value is either:
-   - A **constant** that fits the state field's type/range, or
-   - A **`$param` reference** to one of the command's own params, where the param's type equals the state field's type (enum params: values must be a subset; number params: range must lie within)
-5. `follows.state` must name an existing numeric state field
-6. Every key in `follows.when` must be an existing state field with a valid value
-7. Enum values must be non-empty strings that do **not** start with `$`
-8. `initial` must fit the declared type/range
-9. At least one of `telemetry` or `state` must be non-empty
+- metric/state/command names must be unique within their own scope
+- numeric ranges must satisfy `min < max`
+- every command `effects` entry must target an existing state field
+- effect values must be either a constant or a valid `$param` reference
+- `follows.state` must reference an existing numeric field
+- every key in `follows.when` must match an existing state field
+- enum values must be non-empty strings and cannot start with `$`
+- `initial` values must match the declared type and range
+- at least one of `telemetry` or `state` must be present
 
 ## Limits
 
@@ -75,7 +73,7 @@ These rules cannot be expressed in schema alone and are enforced in code:
 
 Names must match the pattern `[A-Za-z][A-Za-z0-9_]{0,31}`.
 
-## Minimal Examples
+## Minimal examples
 
 ### Telemetry-only device (sensor)
 

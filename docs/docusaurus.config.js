@@ -52,8 +52,8 @@ const config = {
     ({
       image: 'img/logo.svg',
       colorMode: {
-        defaultMode: 'dark',
-        respectPrefersColorScheme: true,
+        defaultMode: 'light',
+        respectPrefersColorScheme: false,
       },
       navbar: {
         title: 'FogSense Simulator',
@@ -110,6 +110,12 @@ const config = {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
         additionalLanguages: ['bash', 'json', 'yaml', 'docker'],
+      },
+      mermaid: {
+        theme: {
+          light: 'neo',
+          dark: 'neo-dark',
+        },
       },
     }),
 };

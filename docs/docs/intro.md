@@ -8,19 +8,17 @@ sidebar_position: 1
 
 # FogSense Device Simulator
 
-**One container = one simulated IoT device**, described entirely by a YAML device spec.
+**One container = one simulated IoT device.**
 
-The FogSense Device Runtime is a generic IoT device simulator designed for the FogSense fog-computing platform. Instead of writing code for each device type, you describe the device's telemetry, state, and commands in a simple YAML file (the **device spec**) and the runtime handles everything else.
+FogSense Device Simulator lets you model a device purely as YAML: define telemetry, state, and commands once, then run the runtime and let it handle the rest.
 
-## Key Features
+## Why it exists
 
-- 🔧 **Spec-driven**: No code changes needed per device type. A single YAML file defines the entire device behavior.
-- 🚀 **High-efficiency Go engine**: Ultra-lightweight footprint (approximately 8-15 MB RAM per container) and compact Docker image (~35 MB). Run hundreds of devices on a single small VM.
-- 📊 **Realistic telemetry**: Random walk simulation with configurable noise, anomaly rates, and state-following metrics.
-- ⚡ **Stateful commands**: Idempotent command execution with parameter validation and state effects.
-- 🌐 **Gateway integration**: Automatic registration, heartbeat, reliable at-least-once ordered delivery.
-- 💥 **Fault simulation**: Random offline periods, instructor-injected faults (offline, spike, flood).
-- 🐳 **Container-ready**: Each device runs in its own container, configured via environment variables.
+- **Spec-driven**: create a new device by editing YAML, not by writing Go code
+- **Lightweight**: each device runs as a tiny, independent runtime process or container
+- **Realistic behavior**: telemetry, offline periods, random faults, and state transitions are built in
+- **Gateway-ready**: devices register with a gateway and emit telemetry/events as they run
+- **Operationally simple**: the runtime exposes a standard device API for health, info, state, and commands
 
 ## Architecture Overview
 
@@ -44,15 +42,28 @@ graph LR
     Gateway -->|"4. Commands & Queries"| Runtime
 ```
 
-## How It Works
+## How it works
 
-1. **Define** a device spec (YAML) that describes telemetry metrics, state fields, and commands.
-2. **Start** the runtime container with the spec and a gateway URL.
-3. The device **registers** with the gateway and begins sending **telemetry**.
-4. The gateway (or other services) can send **commands** to change device state.
-5. State changes trigger **events** pushed back to the gateway.
+1. Define a device spec in YAML with telemetry, state, and commands.
+2. Start the runtime with that spec and a gateway URL.
+3. The device registers with the gateway and begins sending telemetry.
+4. The gateway or another platform can send commands to change device state.
+5. State changes trigger events back to the gateway.
 
-## Quick Start
+## Communication model
+
+FogSense uses two HTTP contracts:
+
+- **Device API**: each device exposes a local HTTP API for `/health`, `/info`, `/state`, and `/commands`
+- **Gateway API**: the gateway exposes the endpoints the device calls for registration, telemetry, and event delivery
+
+The application contracts live in:
+- [contract/device-api.openapi.yaml](../../contract/device-api.openapi.yaml)
+- [contract/gateway-api.openapi.yaml](../../contract/gateway-api.openapi.yaml)
+
+The runtime and the gateway both follow these contracts, so a platform can swap in a different gateway implementation without rewriting the device logic.
+
+## Quick start
 
 ```bash
 # Start the mock gateway
@@ -62,8 +73,17 @@ go run ./cmd/mock-gateway --port 8081
 DEVICE_ID=sensor-1 \
 GATEWAY_URL=http://127.0.0.1:8081 \
 ADVERTISE_URL=http://127.0.0.1:8080 \
+PORT=8080 \
 DEVICE_SPEC_FILE=examples/temp-sensor.yaml \
 go run .
+```
+
+Test a device command directly:
+
+```bash
+curl -X POST http://localhost:8080/commands \
+  -H 'Content-Type: application/json' \
+  -d '{"commandId":"demo-1","name":"TURN_ON"}'
 ```
 
 See the [Getting Started](./getting-started.md) guide for a full walkthrough.

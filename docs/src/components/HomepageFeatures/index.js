@@ -33,7 +33,7 @@ const FeatureList = [
     description: (
       <>
         Built in Go for minimal footprint: approximately 8-15 MB RAM per container
-        and an ultra-compact Docker image (~15 MB). Easily spin up hundreds of simulated
+        and an ultra-compact Docker image (~35 MB). Easily spin up hundreds of simulated
         devices on a single lightweight VM.
       </>
     ),

@@ -73,7 +73,9 @@ follows:
 
 **Example:** A thermostat's temperature metric follows `targetTemp` when `power` is `ON`. When the user sets `targetTemp` to 22°C, the temperature gradually converges toward 22°C.
 
-:::info Rules
+:::info
+**Rules**
+
 - `follows.state` must reference an existing **numeric** state field
 - Every key in `follows.when` must be an existing state field with a valid value
 - `follows.rate` defaults to `0.15` if omitted

@@ -113,7 +113,9 @@ Commands are **idempotent by `commandId`**:
 - Replaying a `commandId` returns the cached result with `"duplicate": true`
 - Effects and events are **not** applied again
 
-:::caution Offline Exception
+:::caution
+**Offline Exception**
+
 Rejections due to `DEVICE_OFFLINE` are **not** cached. The same `commandId` can succeed on retry after the device recovers.
 :::
 

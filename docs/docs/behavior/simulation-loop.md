@@ -13,31 +13,22 @@ The device runtime runs a continuous simulation loop that generates telemetry, h
 
 The simulation loop ticks every **250 milliseconds** (wall-clock time). Each tick:
 
-1. Calculates the elapsed **device time** (`dt × timeScale`)
-2. Advances the virtual clock (`vt`)
-3. Checks for expired faults (spike, flood)
-4. Handles offline state (auto-recovery)
-5. Rolls for random offline events
-6. Generates telemetry readings for metrics whose interval has elapsed
-7. Enqueues readings for delivery to the gateway
-
-```
-┌─────────────────────────────────────┐
-│         Simulation Tick             │
-│         (every 250ms)               │
-├─────────────────────────────────────┤
-│ 1. dt = wall_dt × timeScale         │
-│ 2. vt += dt                         │
-│ 3. Check expired faults             │
-│ 4. If OFFLINE and vt ≥ offlineUntil │
-│    → go ONLINE                      │
-│ 5. If ONLINE and random < offlineP  │
-│    → go OFFLINE for 5-20s           │
-│ 6. For each metric:                 │
-│    if vt ≥ metric.nextAt            │
-│    → sample and enqueue             │
-│ 7. Return readings                  │
-└─────────────────────────────────────┘
+```mermaid
+flowchart TD
+    A["Simulation tick<br/>every 250ms"] --> B["dt = wall_dt × timeScale"]
+    B --> C["vt += dt"]
+    C --> D{"Expired faults?"}
+    D -->|yes| E["Clear expired fault state"]
+    D -->|no| F{"Offline state?"}
+    F -->|OFFLINE and vt ≥ offlineUntil| G["Return ONLINE"]
+    F -->|ONLINE and random < offlineP| H["Go OFFLINE for 5–20s"]
+    G --> I{"For each metric"}
+    H --> I
+    I --> J{"vt ≥ metric.nextAt?"}
+    J -->|yes| K["Sample metric and enqueue reading"]
+    J -->|no| L["Skip this metric"]
+    K --> M["Return readings"]
+    L --> M
 ```
 
 ## Device Time vs. Wall-Clock Time
@@ -69,10 +60,10 @@ TIME_SCALE=10 go run .  # 60s of device time passes in 6s of real time
 The simulation uses the **Mulberry32** pseudo-random number generator (PRNG). Setting the `SEED` environment variable produces deterministic, reproducible output:
 
 ```bash
-SEED=42 node src/index.js  # always generates the same sequence of values
+SEED=42 go run .  # always generates the same sequence of values
 ```
 
-When no seed is provided, a random seed is generated using `crypto.randomInt`.
+When no seed is provided, a random seed is generated at startup.
 
 ## Internal State
 
