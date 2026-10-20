@@ -81,7 +81,7 @@ go run .
 
 The runtime is published as a container image to both registries:
 
-- <img src="https://img.shields.io/badge/Docker%20Hub-fogsense%2Ffogsense-device-runtime-2496ED?logo=docker&logoColor=white" alt="Docker Hub" />
+- ![Docker Image Version](https://img.shields.io/docker/v/aprountzos/fogsense-device-runtime)
 - <img src="https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2F%3Cowner%3E%2Ffogsense-device-runtime-181717?logo=github&logoColor=white" alt="GHCR" />
 
 Use the registry that matches your environment and access control model.
