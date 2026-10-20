@@ -3,8 +3,32 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'main.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'pkg/**'
+      - 'cmd/**'
+      - 'contract/**'
+      - 'examples/**'
+      - 'Dockerfile'
+      - 'docker-compose.example.yml'
+      - 'docs/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'main.go'
+      - 'go.mod'
+      - 'go.sum'
+      - 'pkg/**'
+      - 'cmd/**'
+      - 'contract/**'
+      - 'examples/**'
+      - 'Dockerfile'
+      - 'docker-compose.example.yml'
+      - 'docs/**'
+      - '.github/workflows/ci.yml'
 
 jobs:
   test-go:
