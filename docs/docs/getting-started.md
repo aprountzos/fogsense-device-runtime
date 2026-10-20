@@ -42,6 +42,7 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml \
 go run .
 ```
 
+
 :::tip Windows PowerShell
 On Windows, set variables and run:
 
@@ -53,6 +54,7 @@ $env:DEVICE_SPEC_FILE="examples/smart-light.yaml"
 go run .
 ```
 :::
+
 
 The device will register with the gateway and start its simulation loop.
 
