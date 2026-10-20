@@ -1,0 +1,155 @@
+openapi: 3.0.3
+info:
+  title: FogSense Gateway API (device -> Fog Gateway)
+  version: 1.0.0
+  description: |
+    The API your **Fog Gateway must implement**. Device containers call it; the device runtime
+    is the client.
+
+    ## Delivery rules the device follows (so your gateway can rely on them)
+
+    | Gateway answers | The device |
+    |---|---|
+    | `2xx` | considers the message delivered and moves on to the next one |
+    | `404` | assumes the gateway no longer knows it: **re-registers**, then re-sends the same message |
+    | `429`, `5xx`, timeout, connection error | keeps the message and retries later (exponential backoff, max 30 s) |
+    | any other `4xx` (`400`, `401`, `403`, `413`...) | considers the message invalid or forbidden and **drops it** |
+
+    * Messages are sent **in order** and every telemetry batch / event carries `(bootId, seq)`.
+      `seq` starts at 1 on every start of the container (new `bootId`) and increases by 1 for
+      each telemetry batch **and** each event. Delivery is **at-least-once**: a retry after a lost
+      response can deliver the same `(deviceId, bootId, seq)` twice, so the gateway must be idempotent.
+    * While the gateway is unreachable the device buffers up to 500 messages (oldest dropped first).
+    * The device **re-registers every `REGISTER_INTERVAL_SEC` (default 30 s)** as a heartbeat,
+      except while it is OFFLINE (then it stays silent). A gateway can therefore detect a lost
+      device by the absence of heartbeats and telemetry.
+    * When the device goes OFFLINE it first sends a `STATUS_CHANGED` event ("last will"), then falls
+      silent. Going back ONLINE sends `STATUS_CHANGED` and an immediate registration.
+    * If the container was started with `DEVICE_TOKEN`, the device sends `X-Device-Token` on every
+      request. A gateway that knows the device's token should answer `403` on a mismatch.
+servers:
+  - url: http://{gateway-host}:8081
+    variables:
+      gateway-host: { default: fog-gateway }
+paths:
+  /devices/register:
+    post:
+      summary: Register (and heartbeat)
+      description: |
+        Sent at start-up, again every heartbeat period, after a `404`, and when coming back ONLINE.
+        Must be idempotent. A gateway that does not recognise the device (unknown id, wrong
+        token, or `info.type`/`info.version` different from what was provisioned) should
+        answer `403`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '200': { description: Accepted. }
+        '400': { description: Invalid payload. }
+        '403': { description: Unknown device or wrong token. }
+  /devices/{deviceId}/telemetry:
+    post:
+      summary: Deliver a batch of readings
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TelemetryBatch' }
+      responses:
+        '200': { description: Accepted (also for duplicates). }
+        '400': { description: Invalid payload. }
+        '403': { description: Wrong token. }
+        '404': { description: Device not registered (or `bootId` differs from the registered one). The device will re-register. }
+  /devices/{deviceId}/events:
+    post:
+      summary: Deliver a device event
+      parameters:
+        - { name: deviceId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/StateChanged'
+                - $ref: '#/components/schemas/StatusChanged'
+              discriminator:
+                propertyName: type
+      responses:
+        '200': { description: Accepted (also for duplicates). }
+        '400': { description: Invalid payload. }
+        '403': { description: Wrong token. }
+        '404': { description: Device not registered. The device will re-register. }
+components:
+  schemas:
+    Envelope:
+      type: object
+      required: [deviceId, bootId, seq, ts]
+      properties:
+        deviceId: { type: string }
+        bootId: { type: string, description: Unique per start of the container. }
+        seq: { type: integer, minimum: 1 }
+        ts: { type: string, format: date-time, description: When the message was generated. }
+    RegisterRequest:
+      type: object
+      required: [deviceId, bootId, endpoint, info, state, status, ts]
+      properties:
+        deviceId: { type: string }
+        bootId: { type: string }
+        endpoint:
+          type: string
+          description: Base URL on which the gateway can call the device API (`/info`, `/state`, `/commands`).
+          example: http://light-1:8080
+        info:
+          type: object
+          description: The same document as `GET /info` of the Device API (type, version, telemetry, state, commands...).
+        state: { type: object, additionalProperties: true }
+        status: { type: string, enum: [ONLINE, OFFLINE] }
+        ts: { type: string, format: date-time }
+    TelemetryBatch:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [readings]
+          properties:
+            readings:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [metric, value, ts]
+                properties:
+                  metric: { type: string }
+                  value: { type: number }
+                  unit: { type: string }
+                  ts: { type: string, format: date-time }
+    StateChanged:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [eventId, type, state, cause]
+          properties:
+            eventId: { type: string }
+            type: { type: string, enum: [STATE_CHANGED] }
+            state: { type: object, additionalProperties: true, description: The full state after the change. }
+            cause:
+              type: object
+              description: What caused the change.
+              properties:
+                commandId: { type: string }
+    StatusChanged:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          required: [eventId, type, status, reason]
+          properties:
+            eventId: { type: string }
+            type: { type: string, enum: [STATUS_CHANGED] }
+            status: { type: string, enum: [ONLINE, OFFLINE] }
+            reason:
+              type: string
+              description: RANDOM, FAULT_INJECTED, RECOVERED or FAULT_CLEARED.

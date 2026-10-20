@@ -1,0 +1,39 @@
+# Local playground: a mock gateway + two devices.
+#   docker compose -f docker-compose.example.yml up --build
+# Then look at the gateway's log, or:  curl localhost:8081/debug/devices
+#
+# NOTE: written for the course; not run through Docker by the author of the files,
+# if something is off, the env vars below are the whole contract.
+
+services:
+  mock-gateway:
+    build: .
+    entrypoint: ["fogsense-mock-gateway"]
+    command: ["--port", "8081", "--device-token", "demo-token"]
+    ports:
+      - "8081:8081"
+
+  light-1:
+    build: .
+    depends_on: [mock-gateway]
+    environment:
+      DEVICE_ID: light-1
+      GATEWAY_URL: http://mock-gateway:8081
+      DEVICE_TOKEN: demo-token
+      ADVERTISE_URL: http://light-1:8080
+      DEVICE_SPEC_FILE: /config/spec.yaml
+    volumes:
+      - ./examples/smart-light.yaml:/config/spec.yaml:ro
+
+  sensor-1:
+    build: .
+    depends_on: [mock-gateway]
+    environment:
+      DEVICE_ID: sensor-1
+      GATEWAY_URL: http://mock-gateway:8081
+      DEVICE_TOKEN: demo-token
+      ADVERTISE_URL: http://sensor-1:8080
+      DEVICE_SPEC_FILE: /config/spec.yaml
+      TIME_SCALE: "2"
+    volumes:
+      - ./examples/temp-sensor.yaml:/config/spec.yaml:ro

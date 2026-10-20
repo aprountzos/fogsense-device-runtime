@@ -1,0 +1,56 @@
+type: thermostat
+version: 1
+description: "Thermostat: temperature gradually converges toward target setpoint when powered on"
+state:
+  - name: power
+    type: enum
+    values: [ON, OFF]
+    initial: OFF
+  - name: mode
+    type: enum
+    values: [COOL, HEAT, OFF]
+    initial: OFF
+  - name: targetTemp
+    type: number
+    min: 10
+    max: 35
+    initial: 22
+telemetry:
+  - name: temperature
+    unit: "°C"
+    min: 18
+    max: 28
+    noise: 0.2
+    anomalyRate: 0
+    intervalSec: 5
+    follows:
+      state: targetTemp
+      when:
+        power: ON
+      rate: 0.2
+commands:
+  - name: TURN_ON
+    effects:
+      power: ON
+    userControllable: true
+  - name: TURN_OFF
+    effects:
+      power: OFF
+    userControllable: true
+  - name: SET_MODE
+    params:
+      mode:
+        type: enum
+        values: [COOL, HEAT, OFF]
+    effects:
+      mode: "$mode"
+    userControllable: false
+  - name: SET_TEMPERATURE
+    params:
+      target:
+        type: number
+        min: 10
+        max: 35
+    effects:
+      targetTemp: "$target"
+    userControllable: true

@@ -1,0 +1,194 @@
+openapi: 3.0.3
+info:
+  title: FogSense Device API
+  version: 1.0.0
+  description: |
+    The HTTP API every device container exposes. The **Fog Gateway** (implemented by the
+    students) is the only intended caller. Provided by the device runtime image.
+
+    * If the container was started with `DEVICE_TOKEN`, every endpoint except `/health`
+      requires the header `X-Device-Token: <token>` (otherwise `401`).
+    * While a device is `OFFLINE` it keeps answering `/health`, `/info`, `/state`, but
+      `/commands` is rejected with `503 DEVICE_OFFLINE`.
+    * All durations are in *device time* (equal to wall-clock time unless `TIME_SCALE` is set).
+servers:
+  - url: http://{device-host}:8080
+    variables:
+      device-host: { default: light-1 }
+security:
+  - deviceToken: []
+paths:
+  /health:
+    get:
+      summary: Liveness (no authentication)
+      security: []
+      responses:
+        '200':
+          description: The runtime is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, deviceId, bootId, registered]
+                properties:
+                  status: { type: string, enum: [UP] }
+                  deviceId: { type: string }
+                  bootId: { type: string }
+                  registered: { type: boolean, description: Whether the device is currently registered with the gateway. }
+  /info:
+    get:
+      summary: Self-description of the device
+      description: |
+        Everything a platform needs to treat the device generically: what it measures,
+        which state it has, which commands it accepts and which of them are
+        `userControllable`. The same document (inside `info`) is sent at registration.
+      responses:
+        '200':
+          description: The device description.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Info' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /state:
+    get:
+      summary: Current status, state and last telemetry values
+      responses:
+        '200':
+          description: Current device state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/State' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /commands:
+    post:
+      summary: Execute a command
+      description: |
+        Synchronous and **idempotent per `commandId`**: repeating a request with the same
+        `commandId` returns the original result (marked `duplicate: true`) and does not
+        apply the effects or emit events again. Rejections caused by the device being
+        offline are not remembered (the same `commandId` may succeed once it is back).
+        A command that changes the state also makes the device send a `STATE_CHANGED`
+        event to the gateway (see the Gateway API).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CommandRequest' }
+      responses:
+        '200':
+          description: Executed (or a duplicate of an already executed command).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommandResult' }
+        '400':
+          description: |
+            Rejected. `reason` is one of `INVALID_REQUEST`, `UNKNOWN_COMMAND`, `INVALID_PARAMS`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommandResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: "The device is OFFLINE (`reason: DEVICE_OFFLINE`)."
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommandResult' }
+components:
+  securitySchemes:
+    deviceToken:
+      type: apiKey
+      in: header
+      name: X-Device-Token
+  responses:
+    Unauthorized:
+      description: Missing or wrong `X-Device-Token`.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string, example: unauthorized }
+  schemas:
+    ValueType:
+      type: object
+      required: [type]
+      properties:
+        type: { type: string, enum: [enum, number, boolean] }
+        values: { type: array, items: { type: string } }
+        min: { type: number }
+        max: { type: number }
+    Info:
+      type: object
+      required: [deviceId, bootId, type, version, status, telemetry, state, commands]
+      properties:
+        deviceId: { type: string }
+        bootId: { type: string, description: Changes on every start of the container. }
+        runtimeVersion: { type: string }
+        type: { type: string, example: smart-light }
+        version: { type: integer }
+        description: { type: string }
+        status: { type: string, enum: [ONLINE, OFFLINE] }
+        telemetry:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              unit: { type: string }
+              min: { type: number }
+              max: { type: number }
+              intervalSec: { type: number }
+        state:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/ValueType'
+              - type: object
+                properties:
+                  name: { type: string }
+                  initial: {}
+        commands:
+          type: array
+          items:
+            type: object
+            required: [name, params, userControllable]
+            properties:
+              name: { type: string }
+              params:
+                type: object
+                additionalProperties: { $ref: '#/components/schemas/ValueType' }
+              userControllable: { type: boolean }
+    State:
+      type: object
+      required: [deviceId, bootId, status, state, lastTelemetry]
+      properties:
+        deviceId: { type: string }
+        bootId: { type: string }
+        status: { type: string, enum: [ONLINE, OFFLINE] }
+        state: { type: object, additionalProperties: true }
+        lastTelemetry:
+          type: object
+          description: metric name -> last emitted value.
+          additionalProperties:
+            type: object
+            properties:
+              value: { type: number }
+              ts: { type: string, format: date-time }
+        uptimeSec: { type: integer }
+    CommandRequest:
+      type: object
+      required: [commandId, name]
+      properties:
+        commandId: { type: string, minLength: 1, maxLength: 100, description: Unique per command; used for idempotency. }
+        name: { type: string }
+        params: { type: object, additionalProperties: true }
+    CommandResult:
+      type: object
+      required: [status]
+      properties:
+        commandId: { type: string }
+        status: { type: string, enum: [EXECUTED, REJECTED] }
+        reason: { type: string, enum: [INVALID_REQUEST, UNKNOWN_COMMAND, INVALID_PARAMS, DEVICE_OFFLINE] }
+        message: { type: string }
+        state: { type: object, additionalProperties: true, description: The full state after execution. }
+        changed: { type: boolean, description: Whether the state actually changed. }
+        duplicate: { type: boolean, description: True when this is the remembered result of an earlier request with the same commandId. }

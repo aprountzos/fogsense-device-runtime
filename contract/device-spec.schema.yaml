@@ -1,0 +1,204 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "urn:fogsense:device-spec:1"
+title: "FogSense device spec"
+description: >-
+  Describes one kind of simulated device. The runtime refuses to start on a spec
+  that violates this schema OR the semantic rules below, which JSON Schema cannot express:
+  (1) names are unique within telemetry, within state, and within commands;
+  (2) min < max everywhere;
+  (3) every key of a command's effects is an existing state field;
+  (4) an effect value is either a constant that fits the state field's type/range,
+  or a reference "$param" to one of the command's own params whose type equals the state field's type;
+  (5) follows.state names an existing numeric state field and every key of follows.when is an existing state field;
+  (6) enum values are non-empty strings not starting with '$';
+  (7) initial fits the declared type/range;
+  (8) at least one of telemetry and state is non-empty.
+type: object
+additionalProperties: false
+required:
+  - type
+  - version
+properties:
+  type:
+    type: string
+    pattern: "^[a-z0-9][a-z0-9-]{1,40}$"
+    description: "Unique name of the device type, e.g. smart-light."
+  version:
+    type: integer
+    minimum: 1
+  description:
+    type: string
+  offlineRate:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: "Probability per second of device time that the device randomly drops offline (for 5-20 s). Default 0."
+  telemetry:
+    type: array
+    maxItems: 8
+    items:
+      $ref: "#/$defs/metric"
+  state:
+    type: array
+    maxItems: 8
+    items:
+      $ref: "#/$defs/stateField"
+  commands:
+    type: array
+    maxItems: 10
+    items:
+      $ref: "#/$defs/command"
+anyOf:
+  - required: [telemetry]
+    properties:
+      telemetry:
+        minItems: 1
+  - required: [state]
+    properties:
+      state:
+        minItems: 1
+
+$defs:
+  name:
+    type: string
+    pattern: "^[A-Za-z][A-Za-z0-9_]{0,31}$"
+
+  metric:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - min
+      - max
+    properties:
+      name:
+        $ref: "#/$defs/name"
+      unit:
+        type: string
+        default: ""
+      min:
+        type: number
+      max:
+        type: number
+      noise:
+        type: number
+        minimum: 0
+        default: 0
+        description: "Standard deviation of gaussian noise added to each value."
+      anomalyRate:
+        type: number
+        minimum: 0
+        maximum: 1
+        default: 0
+        description: "Probability per emission of a value outside [min,max]."
+      intervalSec:
+        type: number
+        minimum: 1
+        maximum: 3600
+        default: 5
+      follows:
+        type: object
+        additionalProperties: false
+        required:
+          - state
+        description: "Optional coupling: while all when conditions hold, the metric moves towards numeric state field."
+        properties:
+          state:
+            $ref: "#/$defs/name"
+          when:
+            type: object
+            description: "state field -> required value"
+          rate:
+            type: number
+            exclusiveMinimum: 0
+            maximum: 1
+            default: 0.15
+
+  stateField:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+      - type
+    properties:
+      name:
+        $ref: "#/$defs/name"
+      type:
+        enum: [enum, number, boolean]
+      values:
+        type: array
+        minItems: 1
+        maxItems: 16
+        items:
+          type: string
+          minLength: 1
+      min:
+        type: number
+      max:
+        type: number
+      initial: {}
+    allOf:
+      - if:
+          properties:
+            type: { const: enum }
+        then:
+          required: [values]
+      - if:
+          properties:
+            type: { const: number }
+        then:
+          required: [min, max]
+
+  param:
+    type: object
+    additionalProperties: false
+    required:
+      - type
+    properties:
+      type:
+        enum: [enum, number, boolean]
+      values:
+        type: array
+        minItems: 1
+        maxItems: 16
+        items:
+          type: string
+          minLength: 1
+      min:
+        type: number
+      max:
+        type: number
+    allOf:
+      - if:
+          properties:
+            type: { const: enum }
+        then:
+          required: [values]
+      - if:
+          properties:
+            type: { const: number }
+        then:
+          required: [min, max]
+
+  command:
+    type: object
+    additionalProperties: false
+    required:
+      - name
+    properties:
+      name:
+        $ref: "#/$defs/name"
+      params:
+        type: object
+        maxProperties: 5
+        propertyNames:
+          $ref: "#/$defs/name"
+        additionalProperties:
+          $ref: "#/$defs/param"
+      effects:
+        type: object
+        description: "state field -> constant, or $param reference."
+      userControllable:
+        type: boolean
+        default: false
+        description: "Whether the platform may let a plain USER send this command."

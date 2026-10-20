@@ -1,0 +1,9 @@
+node_modules
+test
+tools
+examples
+contract
+*.md
+docs
+docker-compose*.yml
+.git

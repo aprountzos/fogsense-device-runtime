@@ -1,0 +1,19 @@
+type: temp-sensor
+version: 1
+description: Temperature and humidity sensor
+offlineRate: 0.001
+telemetry:
+  - name: temperature
+    unit: "°C"
+    min: 18
+    max: 28
+    noise: 0.4
+    anomalyRate: 0.03
+    intervalSec: 5
+  - name: humidity
+    unit: "%"
+    min: 30
+    max: 65
+    noise: 1.0
+    anomalyRate: 0.02
+    intervalSec: 10

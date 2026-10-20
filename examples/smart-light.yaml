@@ -1,0 +1,33 @@
+type: smart-light
+version: 1
+description: Smart light bulb with brightness control
+state:
+  - name: power
+    type: enum
+    values: [ON, OFF]
+    initial: OFF
+  - name: brightness
+    type: number
+    min: 0
+    max: 100
+    initial: 0
+commands:
+  - name: TURN_ON
+    effects:
+      power: ON
+    userControllable: true
+  - name: TURN_OFF
+    effects:
+      power: OFF
+      brightness: 0
+    userControllable: true
+  - name: SET_BRIGHTNESS
+    params:
+      level:
+        type: number
+        min: 0
+        max: 100
+    effects:
+      power: ON
+      brightness: "$level"
+    userControllable: true

@@ -1,0 +1,30 @@
+type: door-lock
+version: 1
+description: Smart door lock with open and closed position sensing
+state:
+  - name: position
+    type: enum
+    values: [OPEN, CLOSED]
+    initial: CLOSED
+  - name: locked
+    type: boolean
+    initial: true
+commands:
+  - name: OPEN
+    effects:
+      position: OPEN
+      locked: false
+    userControllable: true
+  - name: CLOSE
+    effects:
+      position: CLOSED
+    userControllable: true
+  - name: LOCK
+    effects:
+      position: CLOSED
+      locked: true
+    userControllable: false
+  - name: UNLOCK
+    effects:
+      locked: false
+    userControllable: false
