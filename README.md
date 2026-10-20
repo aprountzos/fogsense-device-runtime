@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com)
-[![GHCR](https://img.shields.io/badge/GitHub%20Packages-GHCR-181717?logo=github)](https://github.com/features/packages)
+[![GHCR](https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2Faprountzos%2Ffogsense-device-runtime-181717?logo=github)](https://github.com/aprountzos/fogsense-device-runtime/pkgs/container/fogsense-device-runtime)
 [![Docs](https://img.shields.io/badge/Docs-Docusaurus-2E8555?logo=docusaurus)](https://docusaurus.io)
 
 </div>
@@ -21,7 +21,7 @@
   <span><strong>Gateway-ready runtime</strong></span>
 </p>
 
-One container = one simulated IoT device. The device is described entirely by a YAML device spec, so there is no per-device-type code inside the runtime.
+FogSense Device Runtime is a reference Go runtime for simulated IoT devices. Each device runs in its own container and exposes a standard HTTP API. The gateway or platform is responsible for discovery, registration, orchestration, and command routing.
 
 ## Overview
 
@@ -34,23 +34,28 @@ One container = one simulated IoT device. The device is described entirely by a 
 
 </div>
 
-This project is a small reference runtime for an IoT device simulator. Each device runs in its own container and exposes a standard HTTP API. The gateway/platform is responsible for discovery, registration, command delivery, and telemetry ingestion.
+This project is a small reference runtime for an IoT device simulator. A device is described by a YAML device spec, which means there is no per-device-type code inside the runtime itself.
 
 ### Core idea
 
 - one device = one container
 - the device behavior is described by a YAML spec
 - the runtime validates, executes, and reports state changes
-- the gateway owns orchestration, while the device owns its own local state
+- the gateway manages orchestration, while the device owns its local state
 
 ## Quick start
+
+### Prerequisites
+
+- Go 1.22 or newer
+- Docker (optional, for running the packaged image)
 
 ### Pull the published image
 
 ```bash
 docker pull ghcr.io/aprountzos/fogsense-device-runtime:latest
 # or
-# docker pull fogsense/fogsense-device-runtime:latest
+docker pull fogsense/fogsense-device-runtime:latest
 ```
 
 ### Run a device locally
@@ -79,18 +84,18 @@ go run .
 
 ## Package registry
 
-The runtime is published as a container image to both registries:
+Published images are available from the following registries:
 
-- ![Docker Image Version](https://img.shields.io/docker/v/aprountzos/fogsense-device-runtime)
-- <img src="https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2F%3Cowner%3E%2Ffogsense-device-runtime-181717?logo=github&logoColor=white" alt="GHCR" />
+- Docker Hub: `docker pull fogsense/fogsense-device-runtime:latest`
+- GHCR: `docker pull ghcr.io/aprountzos/fogsense-device-runtime:latest`
 
-Use the registry that matches your environment and access control model.
+Use the registry that matches your environment and access-control model.
 
 ## Repository layout
 
 | Path | Description |
 | --- | --- |
-| `main.go`, `pkg/` | The Go runtime implementation |
+| `main.go`, `pkg/` | Go runtime implementation |
 | `Dockerfile` | Multi-stage Docker build producing a minimal static container |
 | `contract/device-spec.schema.yaml` | Schema for the device spec (structure + semantic rules in `description`) |
 | `contract/device-api.openapi.yaml` | API exposed by each device (`/info`, `/state`, `/commands`, `/health`) |
@@ -98,6 +103,7 @@ Use the registry that matches your environment and access control model.
 | `examples/*.yaml` | Sample specs (smart light, temperature sensor, thermostat, door lock) |
 | `cmd/mock-gateway/` | Mock gateway for testing before you write your own |
 | `docs/` | Docusaurus documentation website |
+| `MAINTAINERS.md` | Publishing, release, and maintainer notes |
 
 ## At a glance
 
@@ -124,7 +130,7 @@ State changes
         └──> emits STATE_CHANGED event back to the gateway
 ```
 
-This is why command requests are sent to the device's own HTTP endpoint, not to the gateway URL.
+This is why command requests are sent to the device's HTTP endpoint, not to the gateway URL.
 
 ## Documentation
 
@@ -136,7 +142,7 @@ npm start
 
 ## Quick test (without Docker)
 
-Requires Go >= 1.22. You need three terminals; `go run` keeps running in the terminal where you start it.
+Requires Go 1.22+. You need three terminals; `go run` keeps running in the terminal where you start it.
 
 ### macOS / Linux
 
@@ -175,8 +181,8 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/commands `
   -Body '{"commandId":"c1","name":"SET_BRIGHTNESS","params":{"level":40}}'
 ```
 
-> In PowerShell, `curl` is an alias of `Invoke-WebRequest` and does not understand `-X`, `-H`, `-d`.
-> Use `Invoke-RestMethod` as above, or call the real curl with `curl.exe`.
+> In PowerShell, `curl` is an alias of `Invoke-WebRequest` and does not understand `-X`, `-H`, or `-d`.
+> Use `Invoke-RestMethod` as above, or call the real `curl.exe` executable.
 
 ## Multiple devices
 
@@ -244,7 +250,7 @@ docker run --rm --name light-1 --network <your-gateway-network> `
   fogsense-device-runtime
 ```
 
-`<your-gateway-network>` is the Docker network your Fog Gateway container is attached to, and the name in `GATEWAY_URL` must be the gateway's service/container name on that network. When using the course-published image, `docker build` is not needed.
+`<your-gateway-network>` is the Docker network your Fog Gateway container is attached to, and the name in `GATEWAY_URL` must be the gateway's service/container name on that network. When using the default local mock-gateway setup, the equivalent is `http://127.0.0.1:8081`.
 
 `docker-compose.example.yml` starts a mock gateway and two devices:
 
@@ -256,33 +262,33 @@ docker compose -f docker-compose.example.yml up --build
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `DEVICE_ID` | yes | Unique id, `[A-Za-z0-9_.-]{1,64}` |
+| `DEVICE_ID` | yes | Unique ID, `[A-Za-z0-9_.-]{1,64}` |
 | `GATEWAY_URL` | yes | Base URL of the Fog Gateway, e.g. `http://fog-gateway:8081` |
-| `DEVICE_SPEC_B64` / `DEVICE_SPEC` / `DEVICE_SPEC_FILE` | one of three | The spec: base64 YAML / YAML string / file path (default `/config/spec.yaml`) |
-| `DEVICE_TOKEN` | no | Shared secret. The device sends it as `X-Device-Token` and requires it from anyone calling its API |
-| `ADVERTISE_URL` | no | The URL the gateway uses to reach this device (default `http://<hostname>:<PORT>`) |
+| `DEVICE_SPEC_B64` / `DEVICE_SPEC` / `DEVICE_SPEC_FILE` | one of three | Device spec as base64 YAML, YAML string, or file path (default `/config/spec.yaml`) |
+| `DEVICE_TOKEN` | no | Shared secret; the device sends it as `X-Device-Token` and requires it from anyone calling its API |
+| `ADVERTISE_URL` | no | URL the gateway uses to reach the device (default `http://<hostname>:<PORT>`) |
 | `PORT` | no | Default `8080` |
-| `REGISTER_INTERVAL_SEC` | no | Heartbeat registration period, default `30` |
-| `TIME_SCALE` | no | Device time speed-up factor (for testing), default `1` |
-| `SEED` | no | Integer for reproducible data generation |
+| `REGISTER_INTERVAL_SEC` | no | Heartbeat registration period; default `30` |
+| `TIME_SCALE` | no | Device time speed-up factor for testing; default `1` |
+| `SEED` | no | Integer used for reproducible data generation |
 
-If the spec is invalid, the container does not start: it prints all errors (with paths) as JSON lines and exits with code `2`.
+If the spec is invalid, the container does not start. It prints all errors (with paths) as JSON lines and exits with code `2`.
 
 ## Device behavior
 
-**Telemetry.** Each metric produces a value every `intervalSec` seconds: a random walk within `[min, max]` plus Gaussian noise (`noise`). With probability `anomalyRate`, the value goes out of range. If the metric has `follows`, it gradually moves toward the value of a numeric state field when the `when` conditions hold.
+**Telemetry.** Each metric produces a value every `intervalSec` seconds: a random walk within `[min, max]` plus Gaussian noise (`noise`). With probability `anomalyRate`, the value goes out of range.
 
-**State and commands.** A command validates its parameters, applies its effects, and returns the new state. Commands are idempotent by `commandId`. If the state changed, the device also sends a `STATE_CHANGED` event to the gateway.
+**State and commands.** A command validates its parameters, applies its effects, and returns the new state. Commands are idempotent by `commandId`. If the state changed, the device also sends a `STATE_CHANGED` event.
 
-**OFFLINE.** With probability `offlineRate` per second, the device goes offline for a few seconds. It first sends `STATUS_CHANGED(OFFLINE)` and then goes silent: no telemetry, no heartbeat, and commands are rejected with `503 DEVICE_OFFLINE`.
+**OFFLINE.** With probability `offlineRate` per second, the device goes offline for a few seconds. It first sends `STATUS_CHANGED(OFFLINE)` and then goes silent: no telemetry, no heartbeat, and commands are not processed until it returns online.
 
-**Reliability toward the gateway.** Every message carries `(bootId, seq)` and is delivered at least once, in order. If the gateway does not respond, the device keeps up to 500 messages in memory and retries with backoff.
+**Reliability toward the gateway.** Every message carries `(bootId, seq)` and is delivered at least once, in order. If the gateway does not respond, the device keeps up to 500 messages in memory and retries them.
 
 All durations are in device time unless `TIME_SCALE` is set.
 
 ## Spec limits
 
-Up to 8 metrics, 8 state fields, 10 commands, 5 parameters per command, and 16 values per enum. Names must match `[A-Za-z][A-Za-z0-9_]{0,31}`. The remaining semantic rules are described in the `description` field of `contract/device-spec.schema.yaml`.
+Up to 8 metrics, 8 state fields, 10 commands, 5 parameters per command, and 16 values per enum. Names must match `[A-Za-z][A-Za-z0-9_]{0,31}`. The remaining semantic rules are described in the `contract/device-spec.schema.yaml` file.
 
 ## Tests
 
@@ -333,7 +339,7 @@ go run .
 
 ## What it is not
 
-It does not persist anything; each restart begins from the initial state. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not a reference implementation of the Fog Gateway.
+It does not persist anything; each restart begins from the initial state. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
 
 ## For maintainers
 
