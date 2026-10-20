@@ -124,65 +124,6 @@ DEVICE_ID=d1 GATEWAY_URL=http://127.0.0.1:8081 DEVICE_TOKEN=t CONTROL_TOKEN=c \
 
 The `--check` flag runs 31 automated conformance checks (health, info, state, commands, idempotency, error handling, tokens, fault injection) and outputs PASS/FAIL.
 
-## GitHub Setup and GitHub Pages Hosting
-
-### 1. Initialize and Push to GitHub
-
-To push this repository to your GitHub account:
-
-```bash
-# 1. Initialize git repository (if not already done)
-git init
-git branch -M main
-
-# 2. Stage and commit all files
-git add .
-git commit -m "Initial commit: FogSense device runtime in Go and Docusaurus documentation"
-
-# 3. Create a repository on GitHub via GitHub CLI:
-gh repo create fogsense-device-runtime --public --source=. --remote=origin --push
-
-# Or link to an existing GitHub repository manually:
-# git remote add origin https://github.com/<your-username>/fogsense-device-runtime.git
-# git push -u origin main
-```
-
-### 2. Configure GitHub Pages Hosting
-
-The repository includes a GitHub Actions workflow in `.github/workflows/deploy-docs.yml` that automatically builds and deploys the Docusaurus site upon push to `main`.
-
-To enable hosting on GitHub Pages:
-
-1. Open your repository on GitHub.
-2. Go to **Settings** > **Pages** (under "Code and automation").
-3. Under **Build and deployment** > **Source**, choose **GitHub Actions**.
-4. In `docs/docusaurus.config.js`, set `organizationName` to your GitHub username or organization (or let the GitHub Actions environment supply `DOCUSAURUS_BASE_URL`).
-5. Push a commit to `main` or trigger the workflow manually in **Actions** > **Deploy Docs to GitHub Pages** > **Run workflow**.
-
-Your documentation will be live at:
-`https://<your-username>.github.io/fogsense-device-runtime/`
-
-### 3. Continuous Integration (CI)
-
-The repository includes `.github/workflows/ci.yml`. On every push and pull request, it:
-
-- Tests the Go runtime across Go 1.22, 1.23, and 1.24 on both Ubuntu and Windows.
-- Verifies that the Docusaurus documentation builds cleanly with zero broken links.
-
-### 4. Automated Docker Hub Publishing
-
-The workflow in `.github/workflows/docker-publish.yml` builds multi-architecture images (`linux/amd64` and `linux/arm64`) and pushes them to Docker Hub whenever changes are merged into `main` or a release tag (`v*.*.*`) is pushed.
-
-To enable pushing to your Docker Hub account:
-
-1. Open your repository on GitHub.
-2. Go to **Settings** > **Secrets and variables** > **Actions**.
-3. Add two repository secrets:
-   - `DOCKERHUB_USERNAME`: Your Docker Hub username.
-   - `DOCKERHUB_TOKEN`: A Personal Access Token generated from Docker Hub (**Account Settings** > **Security** > **New Access Token** with Read & Write permissions).
-
-Once configured, each push to `main` updates `<your-username>/fogsense-device-runtime:latest`. Creating a git tag like `v1.0.0` automatically publishes `1.0.0`, `1.0`, and `1` tags.
-
 ## What It Is Not
 
 It does not persist anything (each restart begins from the initial state), is not safe for public exposure (the token is a shared secret over plain HTTP), and `cmd/mock-gateway` **is not a reference implementation** of the Fog Gateway: it does not perform aggregation, buffering, or broker communication.
