@@ -6,7 +6,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker)](https://www.docker.com)
-[![GHCR](https://img.shields.io/badge/GitHub%20Packages-ghcr.io%2Faprountzos%2Ffogsense-device-runtime-181717?logo=github)](https://github.com/aprountzos/fogsense-device-runtime/pkgs/container/fogsense-device-runtime)
+[![GHCR](https://img.shields.io/badge/GitHub%20Packages-GHCR-181717?logo=github)](https://github.com/aprountzos/fogsense-device-runtime/pkgs/container/fogsense-device-runtime)
 [![Docs](https://img.shields.io/badge/Docs-Docusaurus-2E8555?logo=docusaurus)](https://docusaurus.io)
 
 </div>
@@ -53,9 +53,9 @@ This project is a small reference runtime for an IoT device simulator. A device 
 ### Pull the published image
 
 ```bash
-docker pull ghcr.io/aprountzos/fogsense-device-runtime:latest
+docker pull aprountzos/fogsense-device-runtime:latest
 # or
-docker pull fogsense/fogsense-device-runtime:latest
+docker pull ghcr.io/aprountzos/fogsense-device-runtime:latest
 ```
 
 ### Run a device locally
@@ -86,7 +86,7 @@ go run .
 
 Published images are available from the following registries:
 
-- Docker Hub: `docker pull fogsense/fogsense-device-runtime:latest`
+- Docker Hub: `docker pull aprountzos/fogsense-device-runtime:latest`
 - GHCR: `docker pull ghcr.io/aprountzos/fogsense-device-runtime:latest`
 
 Use the registry that matches your environment and access-control model.
