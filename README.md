@@ -48,7 +48,7 @@ This project is a small reference runtime for an IoT device simulator. Each devi
 ### Pull the published image
 
 ```bash
-docker pull ghcr.io/<your-org>/fogsense-device-runtime:latest
+docker pull ghcr.io/aprountzos/fogsense-device-runtime:latest
 # or
 # docker pull fogsense/fogsense-device-runtime:latest
 ```
