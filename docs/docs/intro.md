@@ -15,7 +15,7 @@ The FogSense Device Runtime is a generic IoT device simulator designed for the F
 ## Key Features
 
 - 🔧 **Spec-driven**: No code changes needed per device type. A single YAML file defines the entire device behavior.
-- 🚀 **High-efficiency Go engine**: Ultra-lightweight footprint (approximately 8-15 MB RAM per container) and compact Docker image (~15 MB). Run hundreds of devices on a single small VM.
+- 🚀 **High-efficiency Go engine**: Ultra-lightweight footprint (approximately 8-15 MB RAM per container) and compact Docker image (~35 MB). Run hundreds of devices on a single small VM.
 - 📊 **Realistic telemetry**: Random walk simulation with configurable noise, anomaly rates, and state-following metrics.
 - ⚡ **Stateful commands**: Idempotent command execution with parameter validation and state effects.
 - 🌐 **Gateway integration**: Automatic registration, heartbeat, reliable at-least-once ordered delivery.

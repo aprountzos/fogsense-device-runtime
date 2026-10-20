@@ -6,7 +6,7 @@
 
 One container = one simulated IoT device. The device is described **entirely by a YAML device spec**: there is no per-device-type code inside the runtime. The runtime is provided by the course; you build the platform that defines devices, starts them, and communicates with them.
 
-Implemented in **Go** for high efficiency (< 15 MB RAM per container and a compact ~15 MB Docker image).
+Implemented in **Go** for high efficiency (< 15 MB RAM per container and a compact ~35 MB Docker image).
 
 ## Package Contents
 
