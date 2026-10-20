@@ -69,7 +69,7 @@ const config = {
             label: 'Documentation',
           },
           {
-            href: 'https://github.com/fogsense/fogsense-device-runtime',
+            href: 'https://github.com/aprountzos/fogsense-device-runtime',
             label: 'GitHub',
             position: 'right',
           },
@@ -99,7 +99,7 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/fogsense/fogsense-device-runtime',
+                href: 'https://github.com/aprountzos/fogsense-device-runtime',
               },
             ],
           },
