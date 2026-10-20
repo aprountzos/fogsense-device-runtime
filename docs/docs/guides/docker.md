@@ -30,11 +30,11 @@ docker run --rm --name light-1 \
 ```
 
 :::tip macOS
+
 On macOS, `base64` doesn't support `-w0`. Use:
+
 ```bash
 base64 -i examples/smart-light.yaml | tr -d '\n'
-```
-:::
 
 ### Passing the Device Spec
 
@@ -126,15 +126,6 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   -t <username>/fogsense-device-runtime:1.0.0 \
   -t <username>/fogsense-device-runtime:latest --push .
 ```
-
-## Automated Publishing to Docker Hub
-
-The repository includes `.github/workflows/docker-publish.yml` which automates building and publishing multi-platform images (`linux/amd64`, `linux/arm64`) to Docker Hub whenever code is committed to `main` or a semantic tag (e.g. `v1.0.0`) is pushed.
-
-To enable automated publishing:
-1. In your GitHub repository, open **Settings** > **Secrets and variables** > **Actions**.
-2. Add your `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets.
-3. Every merge or commit to `main` will build and publish `<username>/fogsense-device-runtime:latest`.
 
 ## Resource Usage
 
