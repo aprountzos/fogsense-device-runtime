@@ -21,7 +21,7 @@
   <span><strong>Gateway-ready runtime</strong></span>
 </p>
 
-One container = one simulated IoT device. The device is described entirely by a YAML device spec, so there is no per-device-type code inside the runtime. The runtime is provided by the course; you build the platform that defines devices, starts them, and communicates with them.
+One container = one simulated IoT device. The device is described entirely by a YAML device spec, so there is no per-device-type code inside the runtime.
 
 ## Overview
 
