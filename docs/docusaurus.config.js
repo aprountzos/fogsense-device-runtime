@@ -1,5 +1,5 @@
 // @ts-check
-import {themes as prismThemes} from 'prism-react-renderer';
+import { themes as prismThemes } from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -11,11 +11,11 @@ const config = {
     v4: true,
   },
 
-  url: process.env.DOCUSAURUS_URL || 'https://fogsense.github.io',
+  url: process.env.DOCUSAURUS_URL || 'https://aprountzos.github.io',
   baseUrl: process.env.DOCUSAURUS_BASE_URL || '/',
   trailingSlash: false,
 
-  organizationName: 'fogsense',
+  organizationName: 'aprountzos',
   projectName: 'fogsense-device-runtime',
 
   onBrokenLinks: 'throw',
