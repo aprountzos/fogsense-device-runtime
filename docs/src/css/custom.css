@@ -1,0 +1,102 @@
+/**
+ * Custom CSS for FogSense Device Simulator Documentation
+ */
+
+:root {
+  --ifm-color-primary: #0284c7;
+  --ifm-color-primary-dark: #0369a1;
+  --ifm-color-primary-darker: #075985;
+  --ifm-color-primary-darkest: #0c4a6e;
+  --ifm-color-primary-light: #38bdf8;
+  --ifm-color-primary-lighter: #7dd3fc;
+  --ifm-color-primary-lightest: #bae6fd;
+  --ifm-code-font-size: 92%;
+  --docusaurus-highlighted-code-line-bg: rgba(2, 132, 199, 0.1);
+  --fog-card-bg: rgba(255, 255, 255, 0.8);
+  --fog-card-border: #e2e8f0;
+  --fog-card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #38bdf8;
+  --ifm-color-primary-dark: #0ea5e9;
+  --ifm-color-primary-darker: #0284c7;
+  --ifm-color-primary-darkest: #0369a1;
+  --ifm-color-primary-light: #7dd3fc;
+  --ifm-color-primary-lighter: #bae6fd;
+  --ifm-color-primary-lightest: #e0f2fe;
+  --docusaurus-highlighted-code-line-bg: rgba(56, 189, 248, 0.15);
+  --fog-card-bg: rgba(15, 23, 42, 0.7);
+  --fog-card-border: rgba(51, 65, 85, 0.6);
+  --fog-card-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+/* Hero Section */
+.heroBanner {
+  padding: 5rem 0 4rem;
+  background: radial-gradient(circle at 50% 20%, rgba(56, 189, 248, 0.12) 0%, transparent 70%);
+}
+
+/* Feature Cards Grid */
+.featureCard {
+  background: var(--fog-card-bg);
+  border: 1px solid var(--fog-card-border);
+  border-radius: 16px;
+  padding: 1.75rem;
+  height: 100%;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--fog-card-shadow);
+  backdrop-filter: blur(12px);
+}
+
+.featureCard:hover {
+  transform: translateY(-4px);
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 12px 28px -4px rgba(56, 189, 248, 0.2);
+}
+
+.featureIconWrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(99, 102, 241, 0.15));
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: var(--ifm-color-primary);
+}
+
+.featureTitle {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.65rem;
+}
+
+.featureDescription {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--ifm-font-color-base);
+  opacity: 0.9;
+  margin-bottom: 0;
+}
+
+/* Quick Start Preview Section on Homepage */
+.quickPreviewSection {
+  padding: 3.5rem 0;
+  border-top: 1px solid var(--fog-card-border);
+}
+
+.previewBox {
+  background: #090d16;
+  border: 1px solid #1e293b;
+  border-radius: 14px;
+  padding: 1.5rem;
+  color: #e2e8f0;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.88rem;
+  overflow-x: auto;
+}
