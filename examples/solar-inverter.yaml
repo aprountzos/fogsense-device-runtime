@@ -1,0 +1,96 @@
+type: solar-inverter
+version: 1
+description: Grid-tied smart photovoltaic solar inverter
+telemetry:
+  - name: solarIrradiance
+    unit: "W/m2"
+    min: 0
+    max: 1200
+    noise: 10
+    anomalyRate: 0.01
+    intervalSec: 5
+  - name: dcPowerKw
+    unit: "kW"
+    min: 0
+    max: 10
+    noise: 0.1
+    anomalyRate: 0.01
+    intervalSec: 5
+    follows:
+      state: targetPowerKw
+      when:
+        mode: MPPT
+      rate: 0.3
+  - name: acPowerKw
+    unit: "kW"
+    min: 0
+    max: 10
+    noise: 0.1
+    anomalyRate: 0.01
+    intervalSec: 5
+    follows:
+      state: targetPowerKw
+      when:
+        gridConnected: true
+      rate: 0.25
+  - name: gridFrequencyHz
+    unit: "Hz"
+    min: 49.0
+    max: 51.0
+    noise: 0.04
+    anomalyRate: 0.01
+    intervalSec: 5
+  - name: inverterTempC
+    unit: "C"
+    min: 20
+    max: 85
+    noise: 0.3
+    anomalyRate: 0.01
+    intervalSec: 10
+state:
+  - name: mode
+    type: enum
+    values: [STANDBY, MPPT, CURTAILED, FAULT]
+    initial: MPPT
+  - name: gridConnected
+    type: boolean
+    initial: true
+  - name: targetPowerKw
+    type: number
+    min: 0
+    max: 10
+    initial: 5
+  - name: curtailmentPct
+    type: number
+    min: 0
+    max: 100
+    initial: 0
+commands:
+  - name: DISCONNECT_GRID
+    effects:
+      gridConnected: false
+      mode: STANDBY
+      targetPowerKw: 0
+    userControllable: true
+  - name: CONNECT_GRID
+    effects:
+      gridConnected: true
+      mode: MPPT
+      targetPowerKw: 5
+    userControllable: true
+  - name: SET_CURTAILMENT
+    params:
+      pct:
+        type: number
+        min: 0
+        max: 100
+    effects:
+      mode: CURTAILED
+      curtailmentPct: "$pct"
+    userControllable: true
+  - name: CLEAR_FAULT
+    effects:
+      mode: STANDBY
+      targetPowerKw: 0
+    userControllable: true
+

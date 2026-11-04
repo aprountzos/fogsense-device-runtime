@@ -1,0 +1,84 @@
+type: vibration-sensor
+version: 1
+description: Industrial tri-axial machinery vibration and acoustic sensor
+telemetry:
+  - name: vibrationRms
+    unit: "mm/s"
+    min: 0
+    max: 50
+    noise: 0.2
+    anomalyRate: 0.02
+    intervalSec: 2
+    follows:
+      state: baselineVibration
+      when:
+        machineStatus: RUNNING
+      rate: 0.4
+  - name: peakAcceleration
+    unit: "g"
+    min: 0
+    max: 20
+    noise: 0.15
+    anomalyRate: 0.02
+    intervalSec: 2
+  - name: surfaceTemp
+    unit: "C"
+    min: 10
+    max: 120
+    noise: 0.5
+    anomalyRate: 0.01
+    intervalSec: 5
+  - name: acousticEmission
+    unit: "dB"
+    min: 20
+    max: 110
+    noise: 1.2
+    anomalyRate: 0.01
+    intervalSec: 2
+state:
+  - name: machineStatus
+    type: enum
+    values: [OFF, IDLE, RUNNING, HIGH_LOAD, FAULT]
+    initial: RUNNING
+  - name: baselineVibration
+    type: number
+    min: 0
+    max: 50
+    initial: 2.5
+  - name: samplingRateKhz
+    type: number
+    min: 1
+    max: 20
+    initial: 10
+  - name: alarmTriggered
+    type: boolean
+    initial: false
+commands:
+  - name: SET_MACHINE_STATUS
+    params:
+      status:
+        type: enum
+        values: [OFF, IDLE, RUNNING, HIGH_LOAD, FAULT]
+    effects:
+      machineStatus: "$status"
+    userControllable: true
+  - name: SET_SAMPLING_RATE
+    params:
+      rate:
+        type: number
+        min: 1
+        max: 20
+    effects:
+      samplingRateKhz: "$rate"
+    userControllable: true
+  - name: ACKNOWLEDGE_ALARM
+    effects:
+      alarmTriggered: false
+    userControllable: true
+  - name: SIMULATE_ANOMALY
+    effects:
+      machineStatus: HIGH_LOAD
+      baselineVibration: 25
+      alarmTriggered: true
+    userControllable: true
+

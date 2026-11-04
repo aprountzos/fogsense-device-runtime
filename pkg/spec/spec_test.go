@@ -19,14 +19,16 @@ func loadExample(t *testing.T, filename string) []byte {
 }
 
 func TestExamplesValid(t *testing.T) {
-	examples := []string{
-		"door-lock.yaml",
-		"smart-light.yaml",
-		"temp-sensor.yaml",
-		"thermostat.yaml",
+	files, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.yaml"))
+	if err != nil {
+		t.Fatalf("failed to glob examples: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatalf("no example yaml files found")
 	}
 
-	for _, ex := range examples {
+	for _, file := range files {
+		ex := filepath.Base(file)
 		t.Run(ex, func(t *testing.T) {
 			data := loadExample(t, ex)
 			res := ValidateSpec(data)
