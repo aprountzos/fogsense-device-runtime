@@ -1,0 +1,82 @@
+type: cold-chain-tracker
+version: 1
+description: Refrigerated transport and pharmaceutical cold-chain asset tracker
+telemetry:
+  - name: cargoTempC
+    unit: "C"
+    min: -30
+    max: 25
+    noise: 0.2
+    anomalyRate: 0.01
+    intervalSec: 5
+    follows:
+      state: targetTempC
+      when:
+        coolerState: COOLING
+      rate: 0.1
+  - name: ambientTempC
+    unit: "C"
+    min: -10
+    max: 45
+    noise: 0.3
+    anomalyRate: 0.01
+    intervalSec: 10
+  - name: humidityPct
+    unit: "%"
+    min: 10
+    max: 95
+    noise: 0.5
+    anomalyRate: 0.01
+    intervalSec: 10
+  - name: batteryPct
+    unit: "%"
+    min: 0
+    max: 100
+    noise: 0.05
+    anomalyRate: 0.0
+    intervalSec: 30
+state:
+  - name: coolerState
+    type: enum
+    values: [COOLING, DEFROST, IDLE, OFF]
+    initial: COOLING
+  - name: doorOpen
+    type: boolean
+    initial: false
+  - name: targetTempC
+    type: number
+    min: -30
+    max: 15
+    initial: -18
+  - name: muteBuzzer
+    type: boolean
+    initial: false
+commands:
+  - name: OPEN_DOOR
+    effects:
+      doorOpen: true
+    userControllable: true
+  - name: CLOSE_DOOR
+    effects:
+      doorOpen: false
+    userControllable: true
+  - name: SET_TARGET_TEMP
+    params:
+      temp:
+        type: number
+        min: -30
+        max: 15
+    effects:
+      targetTempC: "$temp"
+    userControllable: true
+  - name: TRIGGER_DEFROST
+    effects:
+      coolerState: DEFROST
+    userControllable: true
+  - name: TOGGLE_MUTE
+    params:
+      mute:
+        type: boolean
+    effects:
+      muteBuzzer: "$mute"
+    userControllable: true

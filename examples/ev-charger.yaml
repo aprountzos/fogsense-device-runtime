@@ -1,0 +1,93 @@
+type: ev-charger
+version: 1
+description: Commercial electric vehicle AC charging station
+telemetry:
+  - name: activePowerKw
+    unit: "kW"
+    min: 0
+    max: 22
+    noise: 0.15
+    anomalyRate: 0.01
+    intervalSec: 5
+    follows:
+      state: chargingPower
+      when:
+        status: CHARGING
+      rate: 0.5
+  - name: totalEnergyKwh
+    unit: "kWh"
+    min: 0
+    max: 10000
+    noise: 0.05
+    anomalyRate: 0.0
+    intervalSec: 10
+  - name: cableTempC
+    unit: "C"
+    min: 15
+    max: 85
+    noise: 0.4
+    anomalyRate: 0.01
+    intervalSec: 5
+  - name: lineVoltageV
+    unit: "V"
+    min: 210
+    max: 250
+    noise: 0.8
+    anomalyRate: 0.02
+    intervalSec: 5
+state:
+  - name: status
+    type: enum
+    values: [AVAILABLE, PREPARING, CHARGING, SUSPENDED, FAULTED]
+    initial: AVAILABLE
+  - name: chargingPower
+    type: number
+    min: 0
+    max: 22
+    initial: 0
+  - name: maxCurrentAmps
+    type: number
+    min: 6
+    max: 32
+    initial: 32
+  - name: connectorLocked
+    type: boolean
+    initial: false
+commands:
+  - name: START_TRANSACTION
+    effects:
+      status: CHARGING
+      connectorLocked: true
+      chargingPower: 11
+    userControllable: true
+  - name: STOP_TRANSACTION
+    effects:
+      status: AVAILABLE
+      connectorLocked: false
+      chargingPower: 0
+    userControllable: true
+  - name: SUSPEND
+    effects:
+      status: SUSPENDED
+      chargingPower: 0
+    userControllable: true
+  - name: RESUME
+    effects:
+      status: CHARGING
+      chargingPower: 11
+    userControllable: true
+  - name: EMERGENCY_STOP
+    effects:
+      status: FAULTED
+      connectorLocked: false
+      chargingPower: 0
+    userControllable: true
+  - name: SET_CURRENT_LIMIT
+    params:
+      limit:
+        type: number
+        min: 6
+        max: 32
+    effects:
+      maxCurrentAmps: "$limit"
+    userControllable: true
