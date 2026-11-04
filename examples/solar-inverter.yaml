@@ -93,3 +93,4 @@ commands:
       mode: STANDBY
       targetPowerKw: 0
     userControllable: true
+

@@ -80,3 +80,4 @@ commands:
     effects:
       muteBuzzer: "$mute"
     userControllable: true
+

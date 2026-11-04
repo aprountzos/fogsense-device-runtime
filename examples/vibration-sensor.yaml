@@ -81,3 +81,4 @@ commands:
       baselineVibration: 25
       alarmTriggered: true
     userControllable: true
+
