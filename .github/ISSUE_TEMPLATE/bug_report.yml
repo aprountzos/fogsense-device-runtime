@@ -1,0 +1,85 @@
+name: Bug Report
+description: File a bug report to help us improve FogSense Device Runtime
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please search existing issues first to avoid duplicates.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Provide a clear and concise description of the bug.
+      placeholder: Describe the problem here...
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Steps or commands to reproduce the observed behavior.
+      placeholder: |
+        1. Start mock gateway with '...'
+        2. Run device runtime with spec '...'
+        3. Observe error '...'
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: A clear description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: spec-configuration
+    attributes:
+      label: Device Spec or Configuration
+      description: The YAML spec file or relevant environment variables used (if applicable).
+      render: yaml
+      placeholder: |
+        name: my-device
+        version: "1.0.0"
+        ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs or Error Output
+      description: Copy and paste any console logs or error messages.
+      render: shell
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Execution Environment
+      description: How are you running the runtime?
+      options:
+        - Native Go binary (`go run .` or pre-built binary)
+        - Docker container
+        - Docker Compose (`docker-compose.example.yml`)
+        - Kubernetes / Other container orchestrator
+    validations:
+      required: true
+  - type: input
+    id: go-version
+    attributes:
+      label: Go Version
+      placeholder: "e.g. go version go1.23.2 windows/amd64"
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux (Ubuntu / Debian / Alpine / etc.)
+        - Windows
+        - macOS
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context, screenshots, or notes about the problem here.
+

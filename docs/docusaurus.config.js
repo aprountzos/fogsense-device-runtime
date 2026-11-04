@@ -95,11 +95,27 @@ const config = {
             ],
           },
           {
-            title: 'More',
+            title: 'Community & Project',
             items: [
               {
                 label: 'GitHub',
                 href: 'https://github.com/aprountzos/fogsense-device-runtime',
+              },
+              {
+                label: 'Contributing Guide',
+                href: 'https://github.com/aprountzos/fogsense-device-runtime/blob/main/CONTRIBUTING.md',
+              },
+              {
+                label: 'Code of Conduct',
+                href: 'https://github.com/aprountzos/fogsense-device-runtime/blob/main/CODE_OF_CONDUCT.md',
+              },
+              {
+                label: 'Security Policy',
+                href: 'https://github.com/aprountzos/fogsense-device-runtime/blob/main/SECURITY.md',
+              },
+              {
+                label: 'MIT License',
+                href: 'https://github.com/aprountzos/fogsense-device-runtime/blob/main/LICENSE',
               },
             ],
           },

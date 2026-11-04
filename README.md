@@ -341,10 +341,17 @@ go run .
 
 It does not persist anything; each restart begins from the initial state. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
 
+## Contributing & Community
+
+We welcome contributions! Please see our:
+* [Contributing Guide](CONTRIBUTING.md) for local setup, testing, and PR guidelines.
+* [Code of Conduct](CODE_OF_CONDUCT.md) for our community standards.
+* [Security Policy](SECURITY.md) to report vulnerabilities responsibly.
+
 ## For maintainers
 
 Publishing, GitHub Pages, CI, and Docker Hub instructions are in [`MAINTAINERS.md`](MAINTAINERS.md).
 
 ## License
 
-UNLICENSED
+This project is licensed under the [MIT License](LICENSE).

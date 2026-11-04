@@ -1,0 +1,44 @@
+type: water-meter
+version: 1
+description: Smart water consumption meter
+telemetry:
+  - name: flowRate
+    unit: "L/min"
+    min: 0
+    max: 200
+    noise: 0.5
+    anomalyRate: 0.02
+    intervalSec: 10
+  - name: totalVolume
+    unit: "L"
+    min: 0
+    max: 20000
+    noise: 0.3
+    anomalyRate: 0.01
+    intervalSec: 15
+state:
+  - name: valve
+    type: enum
+    values: [OPEN, CLOSED]
+    initial: OPEN
+  - name: leakDetected
+    type: boolean
+    initial: false
+  - name: totalVolume
+    type: number
+    min: 0
+    max: 20000
+    initial: 0
+commands:
+  - name: OPEN_VALVE
+    effects:
+      valve: OPEN
+    userControllable: true
+  - name: CLOSE_VALVE
+    effects:
+      valve: CLOSED
+    userControllable: true
+  - name: RESET_VOLUME
+    effects:
+      totalVolume: 0
+    userControllable: false

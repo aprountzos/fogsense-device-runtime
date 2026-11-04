@@ -1,0 +1,41 @@
+type: smoke-alarm
+version: 1
+description: Wireless smoke and heat detection alarm
+state:
+  - name: status
+    type: enum
+    values: [NORMAL, ALARM, TEST]
+    initial: NORMAL
+  - name: battery
+    type: number
+    min: 0
+    max: 100
+    initial: 90
+telemetry:
+  - name: smokeLevel
+    unit: "ppm"
+    min: 0
+    max: 500
+    noise: 1.5
+    anomalyRate: 0.05
+    intervalSec: 8
+  - name: temperature
+    unit: "C"
+    min: 0
+    max: 80
+    noise: 0.3
+    anomalyRate: 0.02
+    intervalSec: 8
+commands:
+  - name: ARM
+    effects:
+      status: NORMAL
+    userControllable: true
+  - name: TEST_ALARM
+    effects:
+      status: TEST
+    userControllable: true
+  - name: RESET
+    effects:
+      status: NORMAL
+    userControllable: false

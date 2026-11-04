@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: FogSense Documentation
+    url: https://aprountzos.github.io/fogsense-device-runtime/
+    about: Read our getting started guide, spec overview, and API reference.
+  - name: Security Vulnerabilities
+    url: https://github.com/aprountzos/fogsense-device-runtime/security/advisories/new
+    about: Privately report a suspected security vulnerability.
+
