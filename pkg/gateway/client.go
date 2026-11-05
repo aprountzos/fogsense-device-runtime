@@ -45,6 +45,7 @@ type ClientStats struct {
 	OldestMessageAgeSeconds float64 `json:"oldestMessageAgeSeconds"`
 	FlushFailures int `json:"flushFailures"`
 	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
+	NextRetryAt string `json:"nextRetryAt,omitempty"`
 	LastError string `json:"lastError,omitempty"`
 }
 
@@ -61,6 +62,7 @@ type Client struct {
 	outboxErr           error
 	outboxHealthy       bool
 	lastSuccessAt       time.Time
+	nextFlushAt         time.Time
 	lastError           string
 	dropped             int64
 	registered          bool
@@ -369,6 +371,8 @@ func (c *Client) doRegister() time.Duration {
 		}
 		c.registered = true
 		c.registerFailures = 0
+		c.flushFailures = 0
+		c.nextFlushAt = time.Time{}
 		c.lastError = ""
 		return c.registerIntervalSec
 	}
@@ -391,9 +395,23 @@ func (c *Client) flushLoop() {
 		case <-c.stopChan:
 			return
 		case <-ticker.C:
-			c.doFlush()
+			c.mu.Lock()
+			retryLater := !c.nextFlushAt.IsZero() && time.Now().Before(c.nextFlushAt)
+			c.mu.Unlock()
+			if !retryLater {
+				c.doFlush()
+			}
 		}
 	}
+}
+
+func (c *Client) scheduleFlushRetryLocked() {
+	multiplier := math.Pow(2, math.Min(float64(c.flushFailures-1), 10))
+	delay := time.Duration(float64(FlushInterval) * multiplier)
+	if delay > MaxBackoff {
+		delay = MaxBackoff
+	}
+	c.nextFlushAt = time.Now().Add(delay)
 }
 
 func (c *Client) doFlush() {
@@ -425,6 +443,8 @@ func (c *Client) doFlush() {
 			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
 			nextDropped := c.dropped + 1
 			if persistErr := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); persistErr != nil {
+				c.flushFailures++
+				c.scheduleFlushRetryLocked()
 				log.Printf("failed to persist MQTT rejection: %v", persistErr)
 				c.mu.Unlock()
 				return
@@ -437,6 +457,7 @@ func (c *Client) doFlush() {
 		if err != nil || statusCode == 408 || statusCode == 429 || statusCode >= 500 {
 			if err != nil { c.lastError = err.Error() } else { c.lastError = fmt.Sprintf("transient gateway HTTP status %d", statusCode) }
 			c.flushFailures++
+			c.scheduleFlushRetryLocked()
 			c.mu.Unlock()
 			return
 		}
@@ -446,6 +467,7 @@ func (c *Client) doFlush() {
 				nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
 				if err := c.persistOutboxLocked(c.seq, nextQueue, c.dropped); err != nil {
 					c.flushFailures++
+					c.scheduleFlushRetryLocked()
 					log.Printf("failed to persist outbox acknowledgement: %v", err)
 					c.mu.Unlock()
 					return
@@ -453,6 +475,7 @@ func (c *Client) doFlush() {
 				c.queue = nextQueue
 			}
 			c.flushFailures = 0
+			c.nextFlushAt = time.Time{}
 			c.lastSuccessAt = time.Now().UTC()
 			c.lastError = ""
 			c.mu.Unlock()
@@ -474,6 +497,8 @@ func (c *Client) doFlush() {
 			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
 			nextDropped := c.dropped + 1
 			if err := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); err != nil {
+				c.flushFailures++
+				c.scheduleFlushRetryLocked()
 				log.Printf("failed to persist rejected-message removal: %v", err)
 				c.mu.Unlock()
 				return
@@ -500,6 +525,9 @@ func (c *Client) Stats() ClientStats {
 	}
 	if !c.lastSuccessAt.IsZero() {
 		stats.LastSuccessAt = c.lastSuccessAt.Format(time.RFC3339Nano)
+	}
+	if !c.nextFlushAt.IsZero() {
+		stats.NextRetryAt = c.nextFlushAt.Format(time.RFC3339Nano)
 	}
 	if len(c.queue) > 0 {
 		if ts, ok := c.queue[0].Body["ts"].(string); ok {
