@@ -56,9 +56,6 @@ func (c *Client) startMQTT() {
 			},
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
-			c.mu.Lock()
-			c.mqtt = cm
-			c.mu.Unlock()
 			commandsTopic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
 			registrationAckTopic := fmt.Sprintf("%s/%s/register/ack", mqttTopicPrefix, c.dev.DeviceID)
 			subCtx, subCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -72,12 +69,17 @@ func (c *Client) startMQTT() {
 				log.Printf("MQTT command subscription failed: %v", err)
 				return
 			}
+			c.mu.Lock()
+			c.mqtt = cm
+			c.mqttReady = true
+			c.mu.Unlock()
 			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
 		},
 		OnConnectionDown: func() bool {
 			c.mu.Lock()
 			stopped := c.stopped
 			c.registered = false
+			c.mqttReady = false
 			c.mu.Unlock()
 			if !stopped {
 				c.Kick()
@@ -95,8 +97,16 @@ func (c *Client) startMQTT() {
 		return
 	}
 	c.mu.Lock()
-	c.mqtt = cm
+	stopped := c.stopped
+	if !stopped {
+		c.mqtt = cm
+	}
 	c.mu.Unlock()
+	if stopped {
+		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer disconnectCancel()
+		_ = cm.Disconnect(disconnectCtx)
+	}
 }
 
 func mqttTopic(deviceID, path string) (string, error) {
@@ -119,8 +129,9 @@ func mqttTopic(deviceID, path string) (string, error) {
 func (c *Client) publishMQTT(ctx context.Context, path string, body interface{}) error {
 	c.mu.Lock()
 	cm := c.mqtt
+	ready := c.mqttReady
 	c.mu.Unlock()
-	if cm == nil {
+	if cm == nil || !ready {
 		return fmt.Errorf("MQTT connection is not ready")
 	}
 
