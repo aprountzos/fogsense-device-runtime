@@ -102,5 +102,5 @@ The local device HTTP API is a separate security boundary from the device-to-gat
 - The device outbox is durable only when its file or mounted volume survives container replacement. Deleting a named volume deletes pending messages.
 - One runtime process must own a given device outbox path; do not mount the same file into multiple replicas.
 - The reference gateway deduplication stores persist accepted message IDs, but are not substitutes for a production database transaction that stores the actual telemetry/event/command result and its deduplication key together.
-- The local anonymous Mosquitto profile is for development only. Use the secure profile or an appropriately managed broker in production.
+- The local anonymous Mosquitto profile is for development only. Use the secure profile or an appropriately managed broker in production. The HTTP mock gateway accepts one shared demo token; production gateways must provision and verify unique per-device credentials.
 - The local HTTP device API remains a separate security boundary from the gateway transport.
