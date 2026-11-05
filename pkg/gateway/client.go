@@ -276,7 +276,12 @@ func (c *Client) doRegister() time.Duration {
 	if c.transport == "mqtt" {
 		err = c.publishMQTT(ctx, "/devices/register", body)
 		if err == nil {
-			statusCode = http.StatusAccepted
+			c.mu.Lock()
+			acknowledged := c.registered
+			c.mu.Unlock()
+			if acknowledged {
+				statusCode = http.StatusAccepted
+			}
 		}
 	} else {
 		statusCode, err = c.post(ctx, "/devices/register", body)
@@ -287,7 +292,7 @@ func (c *Client) doRegister() time.Duration {
 
 	if err == nil && statusCode >= 200 && statusCode < 300 {
 		if !c.registered {
-			log.Printf(`{"level":"info","msg":"registered with gateway","gateway":"%s"}`, c.gatewayURL)
+			log.Printf(`{"level":"info","msg":"registered with gateway","transport":"%s","gateway":"%s"}`, c.transport, c.gatewayURL)
 		}
 		c.registered = true
 		c.registerFailures = 0
