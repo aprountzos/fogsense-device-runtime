@@ -86,6 +86,10 @@ func main() {
 						ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 						defer cancel()
 						parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
+						if len(parts) < 4 {
+							log.Printf("cannot acknowledge message on malformed topic %q", received.Packet.Topic)
+							return true, nil
+						}
 						ackTopic := strings.Join(parts[:4], "/") + "/delivery/ack"
 						if _, err := received.Client.Publish(ackCtx, &paho.Publish{
 							QoS: 1, Topic: ackTopic, Payload: ack,
