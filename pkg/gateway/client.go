@@ -451,6 +451,8 @@ func (c *Client) doFlush() {
 			}
 			c.queue = nextQueue
 			c.dropped = nextDropped
+			c.flushFailures = 0
+			c.nextFlushAt = time.Time{}
 			c.mu.Unlock()
 			continue
 		}
@@ -506,6 +508,8 @@ func (c *Client) doFlush() {
 			c.queue = nextQueue
 			c.dropped = nextDropped
 		}
+		c.flushFailures = 0
+		c.nextFlushAt = time.Time{}
 		c.mu.Unlock()
 	}
 }
