@@ -610,3 +610,9 @@ func (d *Device) StateView() map[string]interface{} {
 		"uptimeSec":     uptime,
 	}
 }
+
+func (d *Device) StatusValue() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.Status
+}
