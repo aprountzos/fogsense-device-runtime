@@ -214,6 +214,13 @@ func main() {
 	if err := gwClient.InitializationError(); err != nil {
 		fatal("cannot initialize persistent gateway outbox", map[string]interface{}{"error": err.Error(), "outboxPath": outboxPath})
 	}
+	outboxStats := gwClient.Stats()
+	logJSON("info", "outbox ready", map[string]interface{}{
+		"path": outboxPath,
+		"queued": outboxStats.Queued,
+		"seq": outboxStats.Seq,
+		"dropped": outboxStats.Dropped,
+	})
 
 	dev.OnEvent(func(evt device.Event) {
 		gwClient.EnqueueEvent(evt)
