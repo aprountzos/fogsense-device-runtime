@@ -331,3 +331,8 @@ func buildMQTTTLSConfig(caFile, certFile, keyFile string) (*tls.Config, error) {
 	}
 	return cfg, nil
 }
+
+func ValidateMQTTTLSConfig(caFile, certFile, keyFile string) error {
+	_, err := buildMQTTTLSConfig(caFile, certFile, keyFile)
+	return err
+}
