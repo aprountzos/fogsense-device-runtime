@@ -109,7 +109,39 @@ MQTT publications use QoS 1 (at-least-once broker delivery). The device does not
 
 The outbound outbox is shared by HTTP and MQTT. It is disk-backed by default at `data/outbox-<DEVICE_ID>.json` (override with `OUTBOX_PATH`) and atomically saves enqueue, acknowledgement and sequence state. Each message has a stable `messageId`; recovered messages keep that ID and sequence while being associated with the current device boot. The outbox is bounded to 500 messages. When full, new messages are rejected and the dropped counter is incremented; messages are not silently evicted. Persist the containing directory or Docker volume.
 
-## Secure MQTT playground\n\nPrepare a private `secrets/mosquitto` directory (do not commit it), create a CA and a server certificate whose subject alternative name includes `DNS:mqtt-broker`, and create the password file:\n\n```powershell\nNew-Item -ItemType Directory -Force secrets/mosquitto/certs | Out-Null\n# Generate CA/server certificates with your approved PKI or OpenSSL tooling.\nmosquitto_passwd -c secrets/mosquitto/passwd mqtt-light-1\nmosquitto_passwd secrets/mosquitto/passwd mqtt-sensor-1\nmosquitto_passwd secrets/mosquitto/passwd fogsense-mock-gateway\nCopy-Item examples/mosquitto-acl.example secrets/mosquitto/acl\n```\n\nSet the gateway password in `$env:MQTT_GATEWAY_PASSWORD`, then start the profile:\n\n```powershell\ndocker compose -f docker-compose.mqtt.secure.example.yml up --build\n```\n\nSet the corresponding device passwords in the compose environment before starting. The example ACL binds device permissions to the MQTT username. For mutual TLS, also provide a client certificate/key pair with `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE`.\n\n## Send a command
+## Secure MQTT playground
+
+Prepare a private `secrets/mosquitto` directory (do not commit it). These OpenSSL commands create a local CA and a broker certificate with the required `DNS:mqtt-broker` subject alternative name:
+
+```powershell
+New-Item -ItemType Directory -Force secrets/mosquitto/certs | Out-Null
+openssl req -x509 -newkey rsa:4096 -nodes -keyout secrets/mosquitto/certs/ca.key -out secrets/mosquitto/certs/ca.crt -days 3650 -subj "/CN=FogSense Local CA"
+openssl req -newkey rsa:2048 -nodes -keyout secrets/mosquitto/certs/server.key -out secrets/mosquitto/certs/server.csr -subj "/CN=mqtt-broker"
+@"
+subjectAltName=DNS:mqtt-broker
+extendedKeyUsage=serverAuth
+"@ | Set-Content secrets/mosquitto/certs/server.ext
+openssl x509 -req -in secrets/mosquitto/certs/server.csr -CA secrets/mosquitto/certs/ca.crt -CAkey secrets/mosquitto/certs/ca.key -CAcreateserial -out secrets/mosquitto/certs/server.crt -days 825 -sha256 -extfile secrets/mosquitto/certs/server.ext
+
+# Create the password file interactively using mosquitto_passwd.
+mosquitto_passwd -c secrets/mosquitto/passwd mqtt-light-1
+mosquitto_passwd secrets/mosquitto/passwd mqtt-sensor-1
+mosquitto_passwd secrets/mosquitto/passwd fogsense-mock-gateway
+Copy-Item examples/mosquitto-acl.example secrets/mosquitto/acl
+```
+
+Set the three password variables in PowerShell, then start the profile:
+
+```powershell
+$env:MQTT_GATEWAY_PASSWORD = "..."
+$env:MQTT_LIGHT_PASSWORD = "..."
+$env:MQTT_SENSOR_PASSWORD = "..."
+docker compose -f docker-compose.mqtt.secure.example.yml up --build
+```
+
+The usernames must match the ACL entries. The example uses TLS plus per-device username/password authentication. For mutual TLS, set `require_certificate true` in the Mosquitto configuration and provide client certificates with `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE`.
+
+## Send a command
 
 Publish a command to the device's command topic:
 
@@ -120,9 +152,9 @@ docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
   -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
 ```
 
-The runtime executes the command using the same device command engine as its HTTP API and queues the result for `commands/ack`. Command acknowledgements use the same bounded, in-memory outbound queue and retry mechanism as telemetry and events. Their envelope includes `deviceId`, `bootId`, `seq`, and `ts`. A temporary broker outage therefore does not immediately discard the acknowledgement, but a device process restart still loses any messages remaining in the in-memory queue.
+The runtime executes the command using the same device command engine as its HTTP API and queues the result for `commands/ack`. Command acknowledgements use the same bounded persistent outbox and application-acknowledgement path as telemetry and events, and survive a device process restart when the outbox volume is retained.
 
-The local mock MQTT gateway currently logs received messages and acknowledges registrations. It is a development tool, not a production gateway or durable message processor.
+The local mock MQTT gateway logs received messages, persists accepted message IDs for deduplication, and acknowledges registration and message acceptance. It is a development tool, not a production gateway or transactional message processor.
 
 ## Authentication and TLS
 
