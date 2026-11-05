@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -148,6 +149,10 @@ func main() {
 		gatewayToken = deviceToken // Backward compatibility with the original shared token setting.
 	}
 	controlToken := os.Getenv("CONTROL_TOKEN")
+	outboxPath := strings.TrimSpace(os.Getenv("OUTBOX_PATH"))
+	if outboxPath == "" {
+		outboxPath = filepath.Join("data", "outbox-"+deviceID+".json")
+	}
 
 	hostname, _ := os.Hostname()
 	advertiseURL := os.Getenv("ADVERTISE_URL")
@@ -189,6 +194,7 @@ func main() {
 		MQTTClientID:        mqttClientID,
 		MQTTUsername:        mqttUsername,
 		MQTTPassword:        mqttPassword,
+		OutboxPath:          outboxPath,
 	})
 
 	dev.OnEvent(func(evt device.Event) {
@@ -257,6 +263,7 @@ func main() {
 			"gatewayTransport": gatewayTransport,
 			"gateway":          gatewayURL,
 			"mqttBroker":       mqttBrokerURL,
+			"outboxPath":       outboxPath,
 			"timeScale": timeScale,
 			"gatewayAuth": gatewayAuthState,
 			"deviceAPIAuth": deviceAPIAuthState,
