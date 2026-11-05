@@ -1,6 +1,10 @@
 package gateway
 
-import "testing"
+import (
+	"testing"
+
+	"fogsense-device-runtime/pkg/device"
+)
 
 func TestMQTTTopic(t *testing.T) {
 	tests := []struct {
@@ -43,5 +47,20 @@ func TestNewClientSelectsMQTTTransport(t *testing.T) {
 	client := NewClient(Config{Transport: " MQTT "})
 	if client.transport != "mqtt" {
 		t.Fatalf("transport = %q, want mqtt", client.transport)
+	}
+}
+
+func TestMQTTRegistrationAckRequiresMatchingDeviceBoot(t *testing.T) {
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	client := NewClient(Config{Device: dev})
+
+	client.handleMQTTRegistrationAck([]byte(`{"deviceId":"light-1","bootId":"boot-old","accepted":true}`))
+	if client.IsRegistered() {
+		t.Fatal("registration acknowledgement for another boot must be ignored")
+	}
+
+	client.handleMQTTRegistrationAck([]byte(`{"deviceId":"light-1","bootId":"boot-current","accepted":true}`))
+	if !client.IsRegistered() {
+		t.Fatal("matching accepted registration acknowledgement should register the device")
 	}
 }
