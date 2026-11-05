@@ -106,3 +106,39 @@ func TestMQTTHeartbeatRequiresFreshRegistrationAck(t *testing.T) {
 		t.Fatal("client must wait for a fresh application acknowledgement")
 	}
 }
+
+func TestMQTTDeliveryAcknowledgementMatchesDeviceAndMessage(t *testing.T) {
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	client := NewClient(Config{Device: dev, Transport: "mqtt"})
+	waiter := make(chan bool, 1)
+	client.mqttAckWaiters["message-1"] = waiter
+
+	client.handleMQTTDeliveryAck([]byte(`{"deviceId":"other-device","messageId":"message-1","accepted":true}`))
+	select {
+	case <-waiter:
+		t.Fatal("acknowledgement for another device must be ignored")
+	default:
+	}
+
+	client.handleMQTTDeliveryAck([]byte(`{"deviceId":"light-1","messageId":"message-1","accepted":true}`))
+	select {
+	case accepted := <-waiter:
+		if !accepted {
+			t.Fatal("expected accepted acknowledgement")
+		}
+	default:
+		t.Fatal("expected matching acknowledgement to notify waiter")
+	}
+}
+
+func TestMQTTDeliveryAcknowledgementCanRejectMessage(t *testing.T) {
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	client := NewClient(Config{Device: dev, Transport: "mqtt"})
+	waiter := make(chan bool, 1)
+	client.mqttAckWaiters["message-2"] = waiter
+
+	client.handleMQTTDeliveryAck([]byte(`{"deviceId":"light-1","messageId":"message-2","accepted":false}`))
+	if accepted := <-waiter; accepted {
+		t.Fatal("expected gateway rejection")
+	}
+}
