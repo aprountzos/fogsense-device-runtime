@@ -63,3 +63,14 @@ func saveSeenMessages(path string, seen map[string]bool) error {
 	}
 	return nil
 }
+
+func initializeSeenMessages(path string, seen map[string]bool) error {
+	_, err := os.Stat(path)
+	if err == nil {
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect deduplication store %q: %w", path, err)
+	}
+	return saveSeenMessages(path, seen)
+}
