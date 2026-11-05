@@ -105,7 +105,14 @@ func main() {
 	}
 	if err := cm.AwaitConnection(ctx); err != nil {
 		log.Printf("MQTT connection ended: %v", err)
+		return
 	}
+
+	// AwaitConnection only confirms the initial connection. Keep the gateway
+	// alive so it can receive registrations, telemetry, events and commands,
+	// and let autopaho handle reconnects until the process is stopped.
+	<-ctx.Done()
+
 	disconnectCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = cm.Disconnect(disconnectCtx)
