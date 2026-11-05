@@ -88,7 +88,9 @@ func generateUUID() string {
 
 func NewClient(cfg Config) *Client {
 	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
-	if transport == "" { transport = "http" }
+	if transport == "" {
+		transport = "http"
+	}
 	interval := time.Duration(cfg.RegisterIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -115,7 +117,9 @@ func NewClient(cfg Config) *Client {
 }
 
 func (c *Client) Start() {
-	if c.transport == "mqtt" { go c.startMQTT() }
+	if c.transport == "mqtt" {
+		go c.startMQTT()
+	}
 	go c.registerLoop()
 	go c.flushLoop()
 }
@@ -130,7 +134,9 @@ func (c *Client) Stop() {
 	cancel := c.mqttCancel
 	c.mu.Unlock()
 	close(c.stopChan)
-	if cancel != nil { cancel() }
+	if cancel != nil {
+		cancel()
+	}
 	c.mu.Lock()
 	cm := c.mqtt
 	c.mu.Unlock()
@@ -267,7 +273,14 @@ func (c *Client) doRegister() time.Duration {
 
 	statusCode := 0
 	var err error
-	if c.transport == "mqtt" { err = c.publishMQTT(ctx, "/devices/register", body); if err == nil { statusCode = http.StatusAccepted } } else { statusCode, err = c.post(ctx, "/devices/register", body) }
+	if c.transport == "mqtt" {
+		err = c.publishMQTT(ctx, "/devices/register", body)
+		if err == nil {
+			statusCode = http.StatusAccepted
+		}
+	} else {
+		statusCode, err = c.post(ctx, "/devices/register", body)
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -313,7 +326,14 @@ func (c *Client) doFlush() {
 		ctx, cancel := context.WithTimeout(context.Background(), PostTimeout)
 		statusCode := 0
 		var err error
-		if c.transport == "mqtt" { err = c.publishMQTT(ctx, msg.Path, msg.Body); if err == nil { statusCode = http.StatusAccepted } } else { statusCode, err = c.post(ctx, msg.Path, msg.Body) }
+		if c.transport == "mqtt" {
+			err = c.publishMQTT(ctx, msg.Path, msg.Body)
+			if err == nil {
+				statusCode = http.StatusAccepted
+			}
+		} else {
+			statusCode, err = c.post(ctx, msg.Path, msg.Body)
+		}
 		cancel()
 
 		c.mu.Lock()
