@@ -78,6 +78,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Validate Compose configurations
+        run: |
+          docker compose -f docker-compose.example.yml config
+          MQTT_GATEWAY_PASSWORD=ci-gateway MQTT_LIGHT_PASSWORD=ci-light MQTT_SENSOR_PASSWORD=ci-sensor \
+            docker compose -f docker-compose.mqtt.secure.example.yml config
+
       - name: Build runtime image
         run: docker build -t fogsense-device-runtime:ci .
 
