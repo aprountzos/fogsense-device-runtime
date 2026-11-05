@@ -85,7 +85,7 @@ The current topic namespace is `fogsense/v1/devices`.
 | Gateway → device | `fogsense/v1/devices/{deviceId}/commands` | Device commands |
 | Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` | Command execution result |
 
-The full topic and payload contract is in [MQTT Gateway Contract](../../../../contract/mqtt-gateway.md).
+The full topic and payload contract is in [MQTT Gateway Contract](https://github.com/aprountzos/fogsense-device-runtime/blob/main/contract/mqtt-gateway.md).
 
 ## Registration and delivery
 
