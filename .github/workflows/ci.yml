@@ -79,8 +79,8 @@ jobs:
         run: |
           docker compose -f docker-compose.mqtt.example.yml up --build -d
           for attempt in $(seq 1 30); do
-            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
-            if echo "$logs" | grep -q "registered with MQTT gateway"; then
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-sensor mqtt-gateway)"
+            if echo "$logs" | grep -q "/telemetry"; then
               break
             fi
             sleep 2
