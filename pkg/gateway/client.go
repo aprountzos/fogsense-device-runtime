@@ -11,10 +11,13 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"fogsense-device-runtime/pkg/device"
+
+	"github.com/eclipse/paho.golang/autopaho"
 )
 
 const (
@@ -51,6 +54,13 @@ type Client struct {
 	flushFailures       int
 	registerFailures    int
 	httpClient          *http.Client
+	transport           string
+	mqttURL             string
+	mqttClientID        string
+	mqttUsername        string
+	mqttPassword        string
+	mqtt                *autopaho.ConnectionManager
+	mqttCancel          context.CancelFunc
 	kickChan            chan struct{}
 	stopChan            chan struct{}
 }
@@ -61,6 +71,11 @@ type Config struct {
 	Endpoint            string
 	Token               string
 	RegisterIntervalSec int
+	Transport           string
+	MQTTURL             string
+	MQTTClientID        string
+	MQTTUsername        string
+	MQTTPassword        string
 }
 
 func generateUUID() string {
@@ -72,13 +87,20 @@ func generateUUID() string {
 }
 
 func NewClient(cfg Config) *Client {
+	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
+	if transport == "" { transport = "http" }
 	interval := time.Duration(cfg.RegisterIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 
 	return &Client{
-		gatewayURL:          cfg.GatewayURL,
+		gatewayURL:          strings.TrimRight(cfg.GatewayURL, "/"),
+		transport:           transport,
+		mqttURL:             cfg.MQTTURL,
+		mqttClientID:        cfg.MQTTClientID,
+		mqttUsername:        cfg.MQTTUsername,
+		mqttPassword:        cfg.MQTTPassword,
 		dev:                 cfg.Device,
 		endpoint:            cfg.Endpoint,
 		token:               cfg.Token,
@@ -93,6 +115,7 @@ func NewClient(cfg Config) *Client {
 }
 
 func (c *Client) Start() {
+	if c.transport == "mqtt" { go c.startMQTT() }
 	go c.registerLoop()
 	go c.flushLoop()
 }
@@ -104,8 +127,18 @@ func (c *Client) Stop() {
 		return
 	}
 	c.stopped = true
+	cancel := c.mqttCancel
 	c.mu.Unlock()
 	close(c.stopChan)
+	if cancel != nil { cancel() }
+	c.mu.Lock()
+	cm := c.mqtt
+	c.mu.Unlock()
+	if cm != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = cm.Disconnect(ctx)
+	}
 }
 
 func (c *Client) Kick() {
@@ -232,7 +265,9 @@ func (c *Client) doRegister() time.Duration {
 	ctx, cancel := context.WithTimeout(context.Background(), PostTimeout)
 	defer cancel()
 
-	statusCode, err := c.post(ctx, "/devices/register", body)
+	statusCode := 0
+	var err error
+	if c.transport == "mqtt" { err = c.publishMQTT(ctx, "/devices/register", body); if err == nil { statusCode = http.StatusAccepted } } else { statusCode, err = c.post(ctx, "/devices/register", body) }
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -276,7 +311,9 @@ func (c *Client) doFlush() {
 		c.mu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), PostTimeout)
-		statusCode, err := c.post(ctx, msg.Path, msg.Body)
+		statusCode := 0
+		var err error
+		if c.transport == "mqtt" { err = c.publishMQTT(ctx, msg.Path, msg.Body); if err == nil { statusCode = http.StatusAccepted } } else { statusCode, err = c.post(ctx, msg.Path, msg.Body) }
 		cancel()
 
 		c.mu.Lock()
