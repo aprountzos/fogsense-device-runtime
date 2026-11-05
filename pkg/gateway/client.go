@@ -323,7 +323,7 @@ func (c *Client) registerLoop() {
 
 func (c *Client) doRegister() time.Duration {
 	c.mu.Lock()
-	if c.dev.Status == "OFFLINE" {
+	if c.dev.StatusValue() == "OFFLINE" {
 		c.mu.Unlock()
 		return time.Second
 	}
@@ -340,7 +340,7 @@ func (c *Client) doRegister() time.Duration {
 		"endpoint": c.endpoint,
 		"info":     c.dev.Info(),
 		"state":    c.dev.StateView()["state"],
-		"status":   c.dev.Status,
+		"status":   c.dev.StatusValue(),
 		"ts":       time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
