@@ -127,6 +127,9 @@ func NewClient(cfg Config) *Client {
 		}
 		outboxErr = saveOutbox(cfg.OutboxPath, state)
 	}
+	if outboxErr == nil {
+		outboxErr = initializeOutbox(cfg.OutboxPath, state)
+	}
 	return &Client{
 		outboxPath:          cfg.OutboxPath,
 		outboxErr:           outboxErr,
