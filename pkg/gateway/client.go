@@ -65,6 +65,7 @@ type Client struct {
 	mqttPassword        string
 	mqtt                *autopaho.ConnectionManager
 	mqttReady           bool
+	mqttAckWaiters      map[string]chan bool
 	mqttCancel          context.CancelFunc
 	kickChan            chan struct{}
 	stopChan            chan struct{}
@@ -108,6 +109,7 @@ func NewClient(cfg Config) *Client {
 		outboxErr:           outboxErr,
 		seq:                 state.Seq,
 		queue:               state.Queue,
+		mqttAckWaiters:      make(map[string]chan bool),
 		dropped:             state.Dropped,
 		gatewayURL:          strings.TrimRight(cfg.GatewayURL, "/"),
 		transport:           transport,
@@ -211,7 +213,12 @@ func (c *Client) enqueue(path string, payload map[string]interface{}) {
 	payload["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
 
 	if len(c.queue) >= MaxQueue {
-		c.dropped++
+		nextDropped := c.dropped + 1
+		if err := c.persistOutboxLocked(c.seq, c.queue, nextDropped); err != nil {
+			log.Printf("outbox full and failed to persist drop counter: %v", err)
+		} else {
+			c.dropped = nextDropped
+		}
 		log.Printf("outbox full for device %s; rejected message %s", c.dev.DeviceID, messageID)
 		return
 	}
@@ -367,7 +374,7 @@ func (c *Client) doFlush() {
 		statusCode := 0
 		var err error
 		if c.transport == "mqtt" {
-			err = c.publishMQTT(ctx, msg.Path, msg.Body)
+			err = c.publishMQTTAndWaitAck(ctx, msg)
 			if err == nil {
 				statusCode = http.StatusAccepted
 			}
