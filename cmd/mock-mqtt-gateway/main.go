@@ -8,12 +8,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -29,6 +31,7 @@ func main() {
 	caFile := flag.String("ca-file", "", "optional PEM CA bundle used to verify the broker")
 	prefix := flag.String("topic-prefix", "fogsense/v1/devices", "device topic prefix")
 	dedupeFile := flag.String("dedupe-file", filepath.Join("data", "mqtt-gateway-dedupe.json"), "persistent message ID deduplication file")
+	healthPort := flag.Int("health-port", 8081, "HTTP health endpoint port")
 	flag.Parse()
 
 	if (*username == "") != (*password == "") {
@@ -56,6 +59,27 @@ func main() {
 	seenMessages, err := loadMQTTSeen(*dedupeFile)
 	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
 	var seenMu sync.Mutex
+	var ready atomic.Bool
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/health" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if !ready.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"status":"DOWN","reason":"mqtt subscription is not ready"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"UP","mqttSubscribed":true}`))
+	})
+	healthServer := &http.Server{Addr: fmt.Sprintf(":%d", *healthPort), Handler: healthMux}
+	go func() {
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("health server failed: %v", err)
+		}
+	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -143,6 +167,7 @@ func main() {
 			},
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
+			ready.Store(false)
 			topic := strings.TrimRight(*prefix, "/") + "/#"
 			subCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
@@ -153,7 +178,13 @@ func main() {
 				log.Printf("subscribe failed: %v", err)
 				return
 			}
+			ready.Store(true)
 			log.Printf("subscribed to %s", topic)
+		},
+		OnConnectionDown: func() bool {
+			ready.Store(false)
+			log.Printf("MQTT connection down; gateway will reconnect")
+			return true
 		},
 		OnConnectError: func(err error) {
 			log.Printf("MQTT connection failed: %v", err)
@@ -174,7 +205,9 @@ func main() {
 	// and let autopaho handle reconnects until the process is stopped.
 	<-ctx.Done()
 
+	ready.Store(false)
 	disconnectCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = cm.Disconnect(disconnectCtx)
+	_ = healthServer.Shutdown(disconnectCtx)
 }
