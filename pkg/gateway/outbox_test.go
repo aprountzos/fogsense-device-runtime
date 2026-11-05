@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -86,5 +88,88 @@ func TestOutboxAcknowledgementIsPersistedBeforeRemoval(t *testing.T) {
 	}
 	if len(recovered.Queue) != 0 {
 		t.Fatalf("recovered queue length = %d, want 0", len(recovered.Queue))
+	}
+}
+
+func TestHTTPApplicationAckRemovesPersistedOutboxMessage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox.json")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		GatewayURL: server.URL,
+		Device:     &device.Device{DeviceID: "light-1", BootID: "boot-one"},
+		OutboxPath: path,
+	})
+	client.enqueue("/devices/light-1/events", map[string]interface{}{"type": "STATUS_CHANGED"})
+	client.registered = true
+	client.doFlush()
+
+	if len(client.queue) != 0 {
+		t.Fatalf("queued messages after HTTP acceptance = %d, want 0", len(client.queue))
+	}
+	state, err := loadOutbox(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Queue) != 0 {
+		t.Fatalf("persisted queue after HTTP acceptance = %d, want 0", len(state.Queue))
+	}
+}
+
+func TestTransientHTTPStatusesKeepOutboxMessage(t *testing.T) {
+	for _, status := range []int{http.StatusRequestTimeout, http.StatusTooManyRequests, http.StatusServiceUnavailable} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "outbox.json")
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+			}))
+			defer server.Close()
+
+			client := NewClient(Config{
+				GatewayURL: server.URL,
+				Device:     &device.Device{DeviceID: "light-1", BootID: "boot-one"},
+				OutboxPath: path,
+			})
+			client.enqueue("/devices/light-1/events", map[string]interface{}{"type": "STATUS_CHANGED"})
+			client.registered = true
+			client.doFlush()
+			if len(client.queue) != 1 {
+				t.Fatalf("queued messages after transient HTTP %d = %d, want 1", status, len(client.queue))
+			}
+		})
+	}
+}
+
+func TestPermanentHTTPRejectionIsCountedAndRemoved(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox.json")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		GatewayURL: server.URL,
+		Device:     &device.Device{DeviceID: "light-1", BootID: "boot-one"},
+		OutboxPath: path,
+	})
+	client.enqueue("/devices/light-1/events", map[string]interface{}{"type": "STATUS_CHANGED"})
+	client.registered = true
+	client.doFlush()
+
+	if len(client.queue) != 0 {
+		t.Fatalf("queued messages after permanent rejection = %d, want 0", len(client.queue))
+	}
+	if client.dropped != 1 {
+		t.Fatalf("dropped = %d, want 1", client.dropped)
+	}
+	state, err := loadOutbox(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Dropped != 1 || len(state.Queue) != 0 {
+		t.Fatalf("persisted outbox = %+v, want dropped=1 and empty queue", state)
 	}
 }
