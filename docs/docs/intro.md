@@ -25,7 +25,7 @@ FogSense Device Simulator lets you model a device purely as YAML: define telemet
 ```mermaid
 graph LR
     subgraph Platform["FogSense Platform"]
-        Gateway["Fog Gateway<br/>/register<br/>/telemetry<br/>/events"]
+        Gateway["Fog Gateway<br/>HTTP API or MQTT broker<br/>register / telemetry / events"]
         Registry["Device Registry<br/>(Stores Device Specs)"]
     end
 
@@ -52,16 +52,19 @@ graph LR
 
 ## Communication model
 
-FogSense uses two HTTP contracts:
+FogSense keeps the **device API** on HTTP in every deployment. Each device exposes local endpoints for `/health`, `/info`, `/state`, and `/commands`.
 
-- **Device API**: each device exposes a local HTTP API for `/health`, `/info`, `/state`, and `/commands`
-- **Gateway API**: the gateway exposes the endpoints the device calls for registration, telemetry, and event delivery
+For communication with the gateway, the runtime supports two alternatives:
 
-The application contracts live in:
-- [contract/device-api.openapi.yaml](../../contract/device-api.openapi.yaml)
-- [contract/gateway-api.openapi.yaml](../../contract/gateway-api.openapi.yaml)
+- **HTTP (default)**: the device calls the gateway's registration, telemetry and event endpoints.
+- **MQTT 5.0**: the device publishes to per-device topics and subscribes for commands and registration acknowledgements.
 
-The runtime and the gateway both follow these contracts, so a platform can swap in a different gateway implementation without rewriting the device logic.
+The contracts live in:
+- [Device API (OpenAPI)](../../contract/device-api.openapi.yaml)
+- [HTTP Gateway API (OpenAPI)](../../contract/gateway-api.openapi.yaml)
+- [MQTT Gateway Contract](https://github.com/aprountzos/fogsense-device-runtime/blob/main/contract/mqtt-gateway.md)
+
+The device behavior and local API stay independent of the selected gateway transport. See the [MQTT 5 guide](./guides/mqtt.md) for setup and topic details.
 
 ## Quick start
 
