@@ -20,6 +20,10 @@ services:
     entrypoint: ["fogsense-mock-mqtt-gateway"]
     command: ["--broker-url", "mqtt://mqtt-broker:1883"]
     depends_on: [mqtt-broker]
+    # The MQTT-only gateway does not expose the device runtime's HTTP /health endpoint.
+    # Override the image-level HTTP health check for this service.
+    healthcheck:
+      disable: true
 
   mqtt-light:
     build: .
