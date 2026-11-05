@@ -12,8 +12,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
