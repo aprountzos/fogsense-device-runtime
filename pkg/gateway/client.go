@@ -104,6 +104,13 @@ func NewClient(cfg Config) *Client {
 	}
 
 	state, outboxErr := loadOutbox(cfg.OutboxPath)
+	if outboxErr == nil && cfg.Device != nil && len(state.Queue) > 0 {
+		for i := range state.Queue {
+			state.Queue[i].Body["deviceId"] = cfg.Device.DeviceID
+			state.Queue[i].Body["bootId"] = cfg.Device.BootID
+		}
+		outboxErr = saveOutbox(cfg.OutboxPath, state)
+	}
 	return &Client{
 		outboxPath:          cfg.OutboxPath,
 		outboxErr:           outboxErr,
