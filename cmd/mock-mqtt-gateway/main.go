@@ -93,6 +93,14 @@ func main() {
 		ConnectPassword:               []byte(*password),
 		ClientConfig: paho.ClientConfig{
 			ClientID: *clientID,
+			OnClientError: func(err error) {
+				ready.Store(false)
+				log.Printf("MQTT client error: %v", err)
+			},
+			OnServerDisconnect: func(disconnect *paho.Disconnect) {
+				ready.Store(false)
+				log.Printf("MQTT broker disconnected: reason=%d", disconnect.ReasonCode)
+			},
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
 				func(received paho.PublishReceived) (bool, error) {
 					var payload map[string]interface{}
@@ -181,12 +189,8 @@ func main() {
 			ready.Store(true)
 			log.Printf("subscribed to %s", topic)
 		},
-		OnConnectionDown: func() bool {
-			ready.Store(false)
-			log.Printf("MQTT connection down; gateway will reconnect")
-			return true
-		},
 		OnConnectError: func(err error) {
+			ready.Store(false)
 			log.Printf("MQTT connection failed: %v", err)
 		},
 	}
