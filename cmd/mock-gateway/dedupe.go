@@ -22,6 +22,9 @@ func loadSeenMessages(path string) (map[string]bool, error) {
 	if err := json.Unmarshal(data, &seen); err != nil {
 		return nil, fmt.Errorf("decode gateway deduplication store: %w", err)
 	}
+	if seen == nil {
+		return nil, fmt.Errorf("deduplication store must contain a JSON object")
+	}
 	return seen, nil
 }
 
