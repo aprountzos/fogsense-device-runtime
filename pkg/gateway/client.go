@@ -40,6 +40,12 @@ type ClientStats struct {
 	Dropped    int64 `json:"dropped"`
 	Seq        int64 `json:"seq"`
 	OutboxPath string `json:"outboxPath,omitempty"`
+	OutboxHealthy bool `json:"outboxHealthy"`
+	OldestQueuedAt string `json:"oldestQueuedAt,omitempty"`
+	OldestMessageAgeSeconds float64 `json:"oldestMessageAgeSeconds"`
+	FlushFailures int `json:"flushFailures"`
+	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
+	LastError string `json:"lastError,omitempty"`
 }
 
 type Client struct {
@@ -53,6 +59,9 @@ type Client struct {
 	queue               []OutboundMessage
 	outboxPath          string
 	outboxErr           error
+	outboxHealthy       bool
+	lastSuccessAt       time.Time
+	lastError           string
 	dropped             int64
 	registered          bool
 	stopped             bool
@@ -121,6 +130,7 @@ func NewClient(cfg Config) *Client {
 	return &Client{
 		outboxPath:          cfg.OutboxPath,
 		outboxErr:           outboxErr,
+		outboxHealthy:       outboxErr == nil,
 		seq:                 state.Seq,
 		queue:               state.Queue,
 		mqttAckWaiters:      make(map[string]chan bool),
@@ -236,11 +246,13 @@ func (c *Client) enqueue(path string, payload map[string]interface{}) {
 		} else {
 			c.dropped = nextDropped
 		}
+		c.lastError = "outbox full; newest message rejected"
 		log.Printf("outbox full for device %s; rejected message %s", c.dev.DeviceID, messageID)
 		return
 	}
 	nextQueue := append(append([]OutboundMessage(nil), c.queue...), OutboundMessage{MessageID: messageID, Path: path, Body: payload})
 	if err := c.persistOutboxLocked(nextSeq, nextQueue, c.dropped); err != nil {
+		c.lastError = err.Error()
 		c.dropped++
 		log.Printf("failed to persist outbound message %s: %v", messageID, err)
 		return
@@ -250,7 +262,10 @@ func (c *Client) enqueue(path string, payload map[string]interface{}) {
 }
 
 func (c *Client) persistOutboxLocked(seq int64, queue []OutboundMessage, dropped int64) error {
-	return saveOutbox(c.outboxPath, outboxState{Version: 1, Seq: seq, Dropped: dropped, Queue: queue})
+	err := saveOutbox(c.outboxPath, outboxState{Version: 1, Seq: seq, Dropped: dropped, Queue: queue})
+	c.outboxHealthy = err == nil
+	if err != nil { c.lastError = err.Error() }
+	return err
 }
 
 func (c *Client) post(ctx context.Context, path string, body interface{}) (int, error) {
@@ -402,6 +417,7 @@ func (c *Client) doFlush() {
 
 		c.mu.Lock()
 		if errors.Is(err, errMQTTRejected) {
+			c.lastError = err.Error()
 			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
 			nextDropped := c.dropped + 1
 			if persistErr := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); persistErr != nil {
@@ -415,6 +431,7 @@ func (c *Client) doFlush() {
 			continue
 		}
 		if err != nil || statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+			if err != nil { c.lastError = err.Error() } else { c.lastError = fmt.Sprintf("transient gateway HTTP status %d", statusCode) }
 			c.flushFailures++
 			c.mu.Unlock()
 			return
@@ -432,6 +449,8 @@ func (c *Client) doFlush() {
 				c.queue = nextQueue
 			}
 			c.flushFailures = 0
+			c.lastSuccessAt = time.Now().UTC()
+			c.lastError = ""
 			c.mu.Unlock()
 			continue
 		}
@@ -445,6 +464,7 @@ func (c *Client) doFlush() {
 		}
 
 		// Any other 4xx: drop message
+		c.lastError = fmt.Sprintf("gateway permanently rejected message with HTTP status %d", statusCode)
 		log.Printf(`{"level":"warn","msg":"gateway refused a message, dropping it","status":%d}`, statusCode)
 		if len(c.queue) > 0 {
 			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
@@ -464,13 +484,28 @@ func (c *Client) doFlush() {
 func (c *Client) Stats() ClientStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return ClientStats{
+	stats := ClientStats{
 		Registered: c.registered,
 		Queued:     len(c.queue),
 		Dropped:    c.dropped,
 		Seq:        c.seq,
 		OutboxPath: c.outboxPath,
+		OutboxHealthy: c.outboxHealthy,
+		FlushFailures: c.flushFailures,
+		LastError: c.lastError,
 	}
+	if !c.lastSuccessAt.IsZero() {
+		stats.LastSuccessAt = c.lastSuccessAt.Format(time.RFC3339Nano)
+	}
+	if len(c.queue) > 0 {
+		if ts, ok := c.queue[0].Body["ts"].(string); ok {
+			if queuedAt, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+				stats.OldestQueuedAt = queuedAt.Format(time.RFC3339Nano)
+				stats.OldestMessageAgeSeconds = time.Since(queuedAt).Seconds()
+			}
+		}
+	}
+	return stats
 }
 
 func (c *Client) InitializationError() error {
