@@ -217,14 +217,14 @@ func (c *Client) handleMQTTCommand(payload []byte) {
 	var command map[string]interface{}
 	_ = json.Unmarshal(payload, &command)
 	result := map[string]interface{}{
-		"deviceId":  c.dev.DeviceID,
 		"commandId": command["commandId"],
 		"status":    status,
 		"response":  response,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := c.publishMQTT(ctx, "/devices/commands/ack", result); err != nil {
-		log.Printf("failed to publish MQTT command result: %v", err)
-	}
+
+	// Queue the acknowledgement instead of publishing from the receive callback.
+	// This keeps the callback short and lets the normal outbound retry loop deliver
+	// the result after a temporary broker outage.
+	c.enqueue("/devices/commands/ack", result)
+	c.Kick()
 }
