@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -400,6 +401,19 @@ func (c *Client) doFlush() {
 		cancel()
 
 		c.mu.Lock()
+		if errors.Is(err, errMQTTRejected) {
+			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
+			nextDropped := c.dropped + 1
+			if persistErr := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); persistErr != nil {
+				log.Printf("failed to persist MQTT rejection: %v", persistErr)
+				c.mu.Unlock()
+				return
+			}
+			c.queue = nextQueue
+			c.dropped = nextDropped
+			c.mu.Unlock()
+			continue
+		}
 		if err != nil || statusCode == 408 || statusCode == 429 || statusCode >= 500 {
 			c.flushFailures++
 			c.mu.Unlock()
