@@ -35,7 +35,7 @@ This starts:
 | Service | Purpose |
 |---|---|
 | `mqtt-broker` | Local Mosquitto broker on port `1883` |
-| `mqtt-gateway` | Subscribes to device topics, logs messages and acknowledges registrations |
+| `mqtt-gateway` | Subscribes to device topics, persists deduplication IDs, acknowledges messages, and exposes readiness at `http://localhost:8081/health` |
 | `mqtt-light` | Example smart-light runtime using MQTT |
 | `mqtt-sensor` | Example temperature-sensor runtime publishing telemetry |
 
@@ -156,7 +156,7 @@ docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
 
 The runtime executes the command using the same device command engine as its HTTP API and queues the result for `commands/ack`. Command acknowledgements use the same bounded persistent outbox and application-acknowledgement path as telemetry and events, and survive a device process restart when the outbox volume is retained.
 
-The local mock MQTT gateway logs received messages, persists accepted message IDs for deduplication, and acknowledges registration and message acceptance. It is a development tool, not a production gateway or transactional message processor.
+The local mock MQTT gateway logs received messages, persists accepted message IDs for deduplication, and acknowledges registration and message acceptance. Its `/health` endpoint returns `200` only after it has connected and subscribed; Compose uses this readiness endpoint. It is a development tool, not a production gateway or transactional message processor.
 
 ## Authentication and TLS
 
