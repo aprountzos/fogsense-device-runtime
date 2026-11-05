@@ -299,6 +299,9 @@ func (c *Client) doRegister() time.Duration {
 	}
 
 	c.registerFailures++
+	if c.transport == "mqtt" {
+		log.Printf("MQTT registration failed for device %s (attempt %d): %v", c.dev.DeviceID, c.registerFailures, err)
+	}
 	backoffSec := math.Min(30, math.Pow(2, math.Min(float64(c.registerFailures), 5)))
 	return time.Duration(backoffSec) * time.Second
 }
