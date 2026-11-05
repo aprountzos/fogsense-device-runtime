@@ -24,6 +24,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 COPY --from=builder /fogsense-device-runtime /usr/local/bin/fogsense-device-runtime
 COPY --from=builder /fogsense-mock-gateway /usr/local/bin/fogsense-mock-gateway
+COPY --from=builder /fogsense-mock-mqtt-gateway /usr/local/bin/fogsense-mock-mqtt-gateway
 
 USER app
 EXPOSE 8080
