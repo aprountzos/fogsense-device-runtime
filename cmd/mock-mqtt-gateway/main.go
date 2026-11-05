@@ -23,6 +23,35 @@ import (
 	"github.com/eclipse/paho.golang/paho"
 )
 
+func maintainSubscription(ctx context.Context, cm *autopaho.ConnectionManager, topic string, ready *atomic.Bool) {
+	backoff := time.Second
+	for {
+		subCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		_, err := cm.Subscribe(subCtx, &paho.Subscribe{
+			Subscriptions: []paho.SubscribeOptions{{Topic: topic, QoS: 1}},
+		})
+		cancel()
+		if err == nil {
+			ready.Store(true)
+			log.Printf("subscribed to %s", topic)
+			return
+		}
+		log.Printf("subscribe failed: %v; retrying in %s", err, backoff)
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		if backoff < 10*time.Second {
+			backoff *= 2
+		}
+	}
+}
+
 func main() {
 	brokerURL := flag.String("broker-url", "mqtt://127.0.0.1:1883", "MQTT 5 broker URL (mqtt:// or mqtts://)")
 	clientID := flag.String("client-id", "fogsense-mock-gateway", "MQTT client identifier")
@@ -60,6 +89,7 @@ func main() {
 	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
 	var seenMu sync.Mutex
 	var ready atomic.Bool
+	var subscribing atomic.Bool
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/health" {
@@ -176,18 +206,14 @@ func main() {
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
 			ready.Store(false)
-			topic := strings.TrimRight(*prefix, "/") + "/#"
-			subCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			defer cancel()
-			_, err := cm.Subscribe(subCtx, &paho.Subscribe{
-				Subscriptions: []paho.SubscribeOptions{{Topic: topic, QoS: 1}},
-			})
-			if err != nil {
-				log.Printf("subscribe failed: %v", err)
+			if !subscribing.CompareAndSwap(false, true) {
 				return
 			}
-			ready.Store(true)
-			log.Printf("subscribed to %s", topic)
+			topic := strings.TrimRight(*prefix, "/") + "/#"
+			go func() {
+				defer subscribing.Store(false)
+				maintainSubscription(ctx, cm, topic, &ready)
+			}()
 		},
 		OnConnectError: func(err error) {
 			ready.Store(false)
