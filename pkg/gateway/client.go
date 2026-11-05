@@ -367,9 +367,11 @@ func (c *Client) doRegister() time.Duration {
 		}
 		c.registered = true
 		c.registerFailures = 0
+		c.lastError = ""
 		return c.registerIntervalSec
 	}
 
+	if err != nil { c.lastError = err.Error() } else { c.lastError = fmt.Sprintf("registration rejected with HTTP status %d", statusCode) }
 	c.registerFailures++
 	if c.transport == "mqtt" {
 		log.Printf("MQTT registration failed for device %s (attempt %d): %v", c.dev.DeviceID, c.registerFailures, err)
