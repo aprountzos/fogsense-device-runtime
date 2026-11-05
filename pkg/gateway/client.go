@@ -322,11 +322,10 @@ func (c *Client) registerLoop() {
 }
 
 func (c *Client) doRegister() time.Duration {
-	c.mu.Lock()
 	if c.dev.StatusValue() == "OFFLINE" {
-		c.mu.Unlock()
 		return time.Second
 	}
+	c.mu.Lock()
 	if c.transport == "mqtt" {
 		// Every registration/heartbeat must be accepted by the gateway before
 		// the client considers itself registered and resumes queue delivery.
