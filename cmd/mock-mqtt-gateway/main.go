@@ -90,6 +90,7 @@ func main() {
 
 	seenMessages, err := loadMQTTSeen(*dedupeFile)
 	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
+	if err := initializeMQTTSeen(*dedupeFile, seenMessages); err != nil { log.Fatalf("initialize MQTT deduplication store: %v", err) }
 	var seenMu sync.Mutex
 	var ready atomic.Bool
 	var subscribing atomic.Bool
