@@ -38,7 +38,7 @@ func (c *Client) startMQTT() {
 	cfg := autopaho.ClientConfig{
 		ServerUrls:                    []*url.URL{u},
 		KeepAlive:                     30,
-		CleanStartOnInitialConnection: false,
+		CleanStartOnInitialConnection: true,
 		SessionExpiryInterval:         60,
 		ConnectUsername:               c.mqttUsername,
 		ConnectPassword:               []byte(c.mqttPassword),
