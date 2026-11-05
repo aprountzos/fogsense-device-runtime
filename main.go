@@ -94,6 +94,9 @@ func main() {
 	mqttClientID := strings.TrimSpace(os.Getenv("MQTT_CLIENT_ID"))
 	mqttUsername := os.Getenv("MQTT_USERNAME")
 	mqttPassword := os.Getenv("MQTT_PASSWORD")
+	mqttCAFile := os.Getenv("MQTT_CA_FILE")
+	mqttClientCertFile := os.Getenv("MQTT_CLIENT_CERT_FILE")
+	mqttClientKeyFile := os.Getenv("MQTT_CLIENT_KEY_FILE")
 	if gatewayTransport == "http" {
 		if !strings.HasPrefix(gatewayURL, "http://") && !strings.HasPrefix(gatewayURL, "https://") {
 			fatal("GATEWAY_URL is required for HTTP transport and must start with http:// or https://", nil)
@@ -194,6 +197,9 @@ func main() {
 		MQTTClientID:        mqttClientID,
 		MQTTUsername:        mqttUsername,
 		MQTTPassword:        mqttPassword,
+		MQTTCAFile:          mqttCAFile,
+		MQTTClientCertFile:  mqttClientCertFile,
+		MQTTClientKeyFile:   mqttClientKeyFile,
 		OutboxPath:          outboxPath,
 	})
 
