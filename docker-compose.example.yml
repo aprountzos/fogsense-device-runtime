@@ -61,6 +61,4 @@ services:
 volumes:
   light-1-outbox:
   sensor-1-outbox:
-
-volumes:
   mock-gateway-data:
