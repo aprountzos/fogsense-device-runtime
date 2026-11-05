@@ -37,6 +37,7 @@ This starts:
 | `mqtt-broker` | Local Mosquitto broker on port `1883` |
 | `mqtt-gateway` | Subscribes to device topics, logs messages and acknowledges registrations |
 | `mqtt-light` | Example smart-light runtime using MQTT |
+| `mqtt-sensor` | Example temperature-sensor runtime publishing telemetry |
 
 Follow the logs:
 
