@@ -143,7 +143,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if !ready.Load() || !dedupeHealthy.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(`{"status":"DOWN","reason":"mqtt subscription is not ready"}`))
+			_, _ = w.Write([]byte(`{"status":"DOWN","reason":"MQTT subscription or deduplication storage is not ready"}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"status":"UP","mqttSubscribed":true}`))
