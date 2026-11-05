@@ -11,7 +11,8 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"os"
+	"path/filepath"
+	"sync"
 	"strings"
 	"syscall"
 	"time"
@@ -27,6 +28,7 @@ func main() {
 	password := flag.String("password", "", "optional MQTT password")
 	caFile := flag.String("ca-file", "", "optional PEM CA bundle used to verify the broker")
 	prefix := flag.String("topic-prefix", "fogsense/v1/devices", "device topic prefix")
+	dedupeFile := flag.String("dedupe-file", filepath.Join("data", "mqtt-gateway-dedupe.json"), "persistent message ID deduplication file")
 	flag.Parse()
 
 	if (*username == "") != (*password == "") {
@@ -50,6 +52,10 @@ func main() {
 		if !roots.AppendCertsFromPEM(pem) { log.Fatal("CA file contains no certificates") }
 		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
 	}
+
+	seenMessages, err := loadMQTTSeen(*dedupeFile)
+	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
+	var seenMu sync.Mutex
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -93,18 +99,34 @@ func main() {
 						}
 					} else if messageID, ok := payload["messageId"].(string); ok && messageID != "" {
 						deviceID, _ := payload["deviceId"].(string)
+						parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
+						if len(parts) < 4 || deviceID == "" || parts[3] != deviceID {
+							log.Printf("cannot accept message with mismatched device/topic on %s", received.Packet.Topic)
+							return true, nil
+						}
+						dedupeKey := deviceID + ":" + messageID
+						seenMu.Lock()
+						duplicate := seenMessages[dedupeKey]
+						if !duplicate {
+							seenMessages[dedupeKey] = true
+							if err := saveMQTTSeen(*dedupeFile, seenMessages); err != nil {
+								delete(seenMessages, dedupeKey)
+								seenMu.Unlock()
+								log.Printf("cannot persist message acceptance for %s: %v", messageID, err)
+								return true, nil
+							}
+						}
+						seenMu.Unlock()
+						if duplicate {
+							log.Printf("duplicate MQTT message %s from %s; acknowledging without reprocessing", messageID, deviceID)
+						}
 						ack, _ := json.Marshal(map[string]interface{}{
 							"deviceId": deviceID,
 							"messageId": messageID,
-							"accepted": deviceID != "",
+							"accepted": true,
 						})
 						ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 						defer cancel()
-						parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
-						if len(parts) < 4 {
-							log.Printf("cannot acknowledge message on malformed topic %q", received.Packet.Topic)
-							return true, nil
-						}
 						ackTopic := strings.Join(parts[:4], "/") + "/delivery/ack"
 						if _, err := received.Client.Publish(ackCtx, &paho.Publish{
 							QoS: 1, Topic: ackTopic, Payload: ack,
