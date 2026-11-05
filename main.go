@@ -121,6 +121,9 @@ func main() {
 		if strings.HasPrefix(mqttBrokerURL, "mqtt://") && (mqttUsername != "" || mqttPassword != "") {
 			logJSON("warn", "MQTT credentials are being sent without TLS", map[string]interface{}{"broker": mqttBrokerURL})
 		}
+		if err := gateway.ValidateMQTTTLSConfig(mqttCAFile, mqttClientCertFile, mqttClientKeyFile); err != nil {
+			fatal("invalid MQTT TLS configuration", map[string]interface{}{"error": err.Error()})
+		}
 		if mqttClientID == "" {
 			mqttClientID = "fogsense-" + deviceID
 		}
