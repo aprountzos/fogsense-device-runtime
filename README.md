@@ -108,6 +108,7 @@ The device subscribes to its own command topic and publishes command acknowledge
 | Gateway → device | `fogsense/v1/devices/{deviceId}/commands` |
 | Gateway → device | `fogsense/v1/devices/{deviceId}/register/ack` |
 | Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` |
+| Gateway → device | `fogsense/v1/devices/{deviceId}/delivery/ack` |
 
 Outbound messages include a stable `messageId` plus `deviceId`, `bootId`, `seq`, and `ts`. The runtime uses QoS 1 and retains messages in a shared disk-backed outbox until the gateway application acknowledges them. The gateway deduplicates by `(deviceId, messageId)`. Registration still uses its own application-level acknowledgement. The outbox is bounded to 500 messages and defaults to `data/outbox-<DEVICE_ID>.json`; persist this path across restarts. MQTT command payloads use the same JSON command shape as `POST /commands`.
 
