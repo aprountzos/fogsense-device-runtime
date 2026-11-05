@@ -14,7 +14,8 @@ COPY cmd/ ./cmd/
 COPY pkg/ ./pkg/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-device-runtime . && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-mock-gateway ./cmd/mock-gateway
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-mock-gateway ./cmd/mock-gateway && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-mock-mqtt-gateway ./cmd/mock-mqtt-gateway
 
 # Stage 2: Minimal runtime image
 FROM alpine:3.20
