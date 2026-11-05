@@ -56,6 +56,12 @@ const sidebars = {
         'guides/testing',
       ],
     },
+    {
+      type: 'category',
+      label: 'Project',
+      collapsed: true,
+      items: ['versioning'],
+    },
   ],
 };
 
