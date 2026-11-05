@@ -99,6 +99,8 @@ func main() {
 	username := flag.String("username", "", "optional MQTT username")
 	password := flag.String("password", "", "optional MQTT password")
 	caFile := flag.String("ca-file", "", "optional PEM CA bundle used to verify the broker")
+	clientCertFile := flag.String("client-cert-file", os.Getenv("MQTT_GATEWAY_CLIENT_CERT_FILE"), "optional MQTT client certificate for mutual TLS")
+	clientKeyFile := flag.String("client-key-file", os.Getenv("MQTT_GATEWAY_CLIENT_KEY_FILE"), "optional MQTT client private key for mutual TLS")
 	prefix := flag.String("topic-prefix", "fogsense/v1/devices", "device topic prefix")
 	dedupeFile := flag.String("dedupe-file", filepath.Join("data", "mqtt-gateway-dedupe.json"), "persistent message ID deduplication file")
 	healthPort := flag.Int("health-port", 8081, "HTTP health endpoint port")
@@ -117,13 +119,24 @@ func main() {
 	}
 
 	var tlsConfig *tls.Config
+	if *clientCertFile == "" != (*clientKeyFile == "") {
+		log.Fatal("MQTT_GATEWAY_CLIENT_CERT_FILE and MQTT_GATEWAY_CLIENT_KEY_FILE must be set together")
+	}
+	if *caFile != "" || *clientCertFile != "" {
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
 	if *caFile != "" {
 		pem, err := os.ReadFile(*caFile)
 		if err != nil { log.Fatalf("read CA file: %v", err) }
 		roots, err := x509.SystemCertPool()
 		if err != nil || roots == nil { roots = x509.NewCertPool() }
 		if !roots.AppendCertsFromPEM(pem) { log.Fatal("CA file contains no certificates") }
-		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+		tlsConfig.RootCAs = roots
+	}
+	if *clientCertFile != "" {
+		cert, err := tls.LoadX509KeyPair(*clientCertFile, *clientKeyFile)
+		if err != nil { log.Fatalf("load MQTT client certificate: %v", err) }
+		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
 	var seenMu sync.Mutex
