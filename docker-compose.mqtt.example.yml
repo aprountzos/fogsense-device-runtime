@@ -35,8 +35,10 @@ services:
       DEVICE_TOKEN: demo-device-token
       ADVERTISE_URL: http://mqtt-light:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
+      OUTBOX_PATH: /data/outbox.json
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
+      - mqtt-light-outbox:/data
     ports:
       - "8083:8080"
 
@@ -49,5 +51,11 @@ services:
       MQTT_BROKER_URL: mqtt://mqtt-broker:1883
       ADVERTISE_URL: http://mqtt-sensor:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
+      OUTBOX_PATH: /data/outbox.json
     volumes:
       - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
+      - mqtt-sensor-outbox:/data
+
+volumes:
+  mqtt-light-outbox:
+  mqtt-sensor-outbox:
