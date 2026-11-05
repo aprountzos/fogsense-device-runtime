@@ -160,7 +160,8 @@ Use the registry that matches your environment and access-control model.
 | `examples/*.yaml` | Sample specs (smart light, temperature sensor, thermostat, door lock) |
 | `cmd/mock-gateway/` | HTTP mock gateway and conformance runner |
 | `cmd/mock-mqtt-gateway/` | MQTT mock gateway subscriber for local testing |
-| `docker-compose.mqtt.example.yml` | Local Mosquitto + MQTT device playground |\n| `docker-compose.mqtt.secure.example.yml` | TLS/authenticated MQTT playground |
+| `docker-compose.mqtt.example.yml` | Local Mosquitto + MQTT device playground |
+| `docker-compose.mqtt.secure.example.yml` | TLS/authenticated MQTT playground |
 | `docs/` | Docusaurus documentation website |
 | `MAINTAINERS.md` | Publishing, release, and maintainer notes |
 
@@ -292,7 +293,8 @@ docker run --rm --name light-1 --network <your-gateway-network> \
   fogsense-device-runtime
 ```
 
-> On macOS, `base64` does not support `-w0`; use `base64 -i file | tr -d '\n'` instead.
+> On macOS, `base64` does not support `-w0`; use `base64 -i file | tr -d '
+'` instead.
 
 ### PowerShell
 
