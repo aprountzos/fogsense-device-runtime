@@ -26,7 +26,7 @@ The topic prefix is `fogsense/v1/devices`.
 
 ## Registration
 
-The device publishes the same registration object used by the HTTP gateway API to the `register` topic. A broker PUBACK confirms broker receipt only; it does not mean that the gateway application accepted the device. The device therefore waits for an application-level acknowledgement before it marks itself registered and begins flushing telemetry/events.
+The device publishes the same registration object used by the HTTP gateway API to the `register` topic. A broker PUBACK confirms broker receipt only; it does not mean that the gateway application accepted the device. The device therefore waits for an application-level acknowledgement before it marks itself registered and begins flushing telemetry/events. This applies to periodic registration/heartbeat messages as well as initial registration and reconnects; queue delivery pauses until the matching acknowledgement arrives.
 
 Example gateway acknowledgement:
 
@@ -63,7 +63,7 @@ The gateway publishes the same JSON command payload accepted by the device's `PO
 }
 ```
 
-The device publishes the execution result to `commands/ack`, including `deviceId`, `commandId`, numeric `status`, and the existing response body. `commandId` is used by the device's existing command idempotency cache.
+The device queues the execution result for publication to `commands/ack`, including `deviceId`, `bootId`, `seq`, `ts`, `commandId`, numeric `status`, and the existing response body. Command acknowledgements use the same bounded in-memory outbound queue and retry path as telemetry/events, so a temporary broker outage does not immediately discard an acknowledgement. The queue is limited to 500 messages and is not durable across a device process restart. `commandId` is used by the device's existing command idempotency cache; consumers must still tolerate QoS 1 duplicates.
 
 ## Authentication and authorization
 
