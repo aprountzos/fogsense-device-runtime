@@ -86,19 +86,21 @@ The local device HTTP API is a separate security boundary from the device-to-gat
    - Remaining: automated broker ACL integration tests, certificate rotation, and an equivalent fully automated HTTPS test profile.
 
 4. **Operational visibility and lifecycle — partially implemented**
-   - The existing control/status response exposes outbox queue depth, dropped count, sequence and path.
+   - The control/status response exposes queue depth, dropped count, sequence, outbox path/health, oldest-message age, retry failures, last successful delivery and last error.
+   - Both mock gateways expose readiness health endpoints; the MQTT Compose healthcheck now checks subscription readiness.
    - Transient HTTP failures (including 408, 429 and 5xx) and MQTT acknowledgement timeouts retain messages for retry. Permanent rejections are counted and removed.
    - Remaining: oldest-message age, retry counters, last successful delivery, disk-health indicators, and meaningful MQTT gateway health checks.
 
 5. **Conformance and local test suite — in progress**
-   - Added unit tests for outbox recovery/corruption, stable IDs, MQTT acknowledgement matching, custom CA configuration, and gateway deduplication persistence.
-   - Remaining: end-to-end HTTP/MQTT parity tests, broker/process fault injection, security/ACL integration tests, and the final PowerShell test runner.
+   - Added unit tests for outbox recovery/corruption, stable IDs, queue capacity, HTTP acknowledgement/retry behavior, MQTT acknowledgement matching, custom CA configuration, and gateway deduplication persistence.
+   - CI now exercises MQTT broker restart recovery and device-process restart with a pending durable outbox.
+   - Remaining: broader HTTP/MQTT conformance parity, secure-broker/ACL integration tests, disk-full fault injection, and the final PowerShell test runner.
 
 ## 6. Current implementation boundaries
 
 - Delivery is **at least once**, not exactly once. Consumers must be idempotent.
 - The device outbox is durable only when its file or mounted volume survives container replacement. Deleting a named volume deletes pending messages.
 - One runtime process must own a given device outbox path; do not mount the same file into multiple replicas.
-- The reference gateway deduplication store persists message IDs, but is not a substitute for a production database transaction that stores the actual telemetry/event/command result and its deduplication key together.
+- The reference gateway deduplication stores persist accepted message IDs, but are not substitutes for a production database transaction that stores the actual telemetry/event/command result and its deduplication key together.
 - The local anonymous Mosquitto profile is for development only. Use the secure profile or an appropriately managed broker in production.
 - The local HTTP device API remains a separate security boundary from the gateway transport.
