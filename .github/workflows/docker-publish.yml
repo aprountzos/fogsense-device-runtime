@@ -2,20 +2,7 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [main]
     tags: ['v*.*.*']
-    paths:
-      - 'main.go'
-      - 'go.mod'
-      - 'go.sum'
-      - 'pkg/**'
-      - 'cmd/**'
-      - 'contract/**'
-      - 'examples/**'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - '.github/workflows/docker-publish.yml'
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,6 +11,7 @@ permissions:
 jobs:
   docker-hub:
     name: Build and Push to Docker Hub
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -61,8 +49,7 @@ jobs:
           images: |
             ${{ env.DOCKERHUB_USERNAME }}/fogsense-device-runtime
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -82,6 +69,7 @@ jobs:
 
   ghcr:
     name: Build and Push to GHCR
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     env:
       ENABLE_GHCR: ${{ secrets.ENABLE_GHCR }}
@@ -120,8 +108,7 @@ jobs:
           images: |
             ghcr.io/${{ env.GHCR_OWNER }}/fogsense-device-runtime
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=ref,event=branch
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
