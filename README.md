@@ -90,7 +90,7 @@ HTTP remains the default gateway transport. Devices can alternatively publish re
 docker compose -f docker-compose.mqtt.example.yml up --build
 ```
 
-The local playground starts a Mosquitto broker, a small MQTT mock gateway subscriber, and a YAML-configured smart-light device. The mock gateway prints messages received on the device topics.
+The local playground starts a Mosquitto broker, a small MQTT mock gateway subscriber, and YAML-configured smart-light and temperature-sensor devices. The mock gateway prints messages received on the device topics.
 
 The device subscribes to its own command topic and publishes command acknowledgements:
 
