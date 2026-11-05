@@ -21,7 +21,8 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags
 FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -S app && adduser -S app -G app
+    addgroup -S app && adduser -S app -G app && \
+    mkdir -p /data && chown app:app /data
 
 COPY --from=builder /fogsense-device-runtime /usr/local/bin/fogsense-device-runtime
 COPY --from=builder /fogsense-mock-gateway /usr/local/bin/fogsense-mock-gateway
