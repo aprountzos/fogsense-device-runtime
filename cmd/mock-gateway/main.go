@@ -238,6 +238,17 @@ func handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if r.Method == http.MethodGet && path == "/health" {
+			mu.Lock()
+			deviceCount := len(devices)
+			mu.Unlock()
+			sendJSON(w, http.StatusOK, map[string]interface{}{
+				"status": "UP",
+				"registeredDevices": deviceCount,
+				"deduplicationStore": dedupeFile,
+			})
+			return
+		}
 
 		if r.Method == http.MethodGet && path == "/debug/devices" {
 			mu.Lock()
