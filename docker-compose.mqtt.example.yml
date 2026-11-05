@@ -35,3 +35,15 @@ services:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
     ports:
       - "8083:8080"
+
+  mqtt-sensor:
+    build: .
+    depends_on: [mqtt-broker]
+    environment:
+      DEVICE_ID: mqtt-sensor-1
+      GATEWAY_TRANSPORT: mqtt
+      MQTT_BROKER_URL: mqtt://mqtt-broker:1883
+      ADVERTISE_URL: http://mqtt-sensor:8080
+      DEVICE_SPEC_FILE: /config/spec.yaml
+    volumes:
+      - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
