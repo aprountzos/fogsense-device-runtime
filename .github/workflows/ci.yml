@@ -14,6 +14,7 @@ on:
       - 'Dockerfile'
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
+      - 'docker-compose.mqtt.secure.example.yml'
       - 'docs/**'
       - '.github/workflows/**'
   pull_request:
@@ -117,6 +118,31 @@ jobs:
             sleep 2
           done
 
+          echo "$logs"
+          test "$recovered" -eq 1
+
+      - name: Verify device outbox survives process restart
+        run: |
+          docker compose -f docker-compose.mqtt.example.yml stop mqtt-broker
+          sleep 5
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-light
+
+          logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light)"
+          echo "$logs"
+          echo "$logs" | grep -q '"msg":"outbox ready"'
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-light sh -c 'grep -q messageId /data/outbox.json'
+
+          docker compose -f docker-compose.mqtt.example.yml start mqtt-broker
+          recovered=0
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
+            registrations="$(echo "$logs" | grep -c 'registered with MQTT gateway' || true)"
+            if [ "$registrations" -ge 2 ] && echo "$logs" | grep -q '/telemetry'; then
+              recovered=1
+              break
+            fi
+            sleep 2
+          done
           echo "$logs"
           test "$recovered" -eq 1
 
