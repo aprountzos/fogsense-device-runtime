@@ -15,15 +15,18 @@ import (
 const mqttTopicPrefix = "fogsense/v1/devices"
 
 func (c *Client) startMQTT() {
+	if c.mqttClientID == "" { c.mqttClientID = "fogsense-" + c.dev.DeviceID }
 	brokerURL := c.mqttURL
 	if strings.HasPrefix(brokerURL, "mqtts://") {
 		brokerURL = "tls://" + strings.TrimPrefix(brokerURL, "mqtts://")
+	} else if strings.HasPrefix(brokerURL, "tcp://") {
+		brokerURL = "mqtt://" + strings.TrimPrefix(brokerURL, "tcp://")
 	}
-	u, err := url.Parse(brokerURL)
-	if err != nil {
-		log.Printf("invalid MQTT broker URL: %v", err)
+	if u, err := url.Parse(brokerURL); err != nil || (u.Scheme != "mqtt" && u.Scheme != "tls" && u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
+		log.Printf("invalid MQTT broker URL %q: expected mqtt:// or mqtts:// (optionally ws:// or wss://)", c.mqttURL)
 		return
 	}
+	u, _ := url.Parse(brokerURL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.mu.Lock()
@@ -92,6 +95,8 @@ func (c *Client) publishMQTT(ctx context.Context, path string, body interface{})
 		messageType = "telemetry"
 	case strings.HasSuffix(path, "/events"):
 		messageType = "events"
+	case strings.HasSuffix(path, "/commands/ack"):
+		messageType = "commands/ack"
 	default:
 		return fmt.Errorf("unsupported MQTT gateway path %q", path)
 	}
@@ -107,16 +112,17 @@ func (c *Client) publishMQTT(ctx context.Context, path string, body interface{})
 
 func (c *Client) handleMQTTCommand(payload []byte) {
 	status, response := c.dev.ExecuteCommand(payload)
+	var command map[string]interface{}
+	_ = json.Unmarshal(payload, &command)
 	result := map[string]interface{}{
-		"httpStatus": status,
-		"response":   response,
+		"deviceId": c.dev.DeviceID,
+		"commandId": command["commandId"],
+		"status": status,
+		"response": response,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := c.publishMQTT(ctx, "/devices/commands-result", map[string]interface{}{
-		"deviceId": c.dev.DeviceID,
-		"result":   result,
-	}); err != nil {
+	if err := c.publishMQTT(ctx, "/devices/commands/ack", result); err != nil {
 		log.Printf("failed to publish MQTT command result: %v", err)
 	}
 }
