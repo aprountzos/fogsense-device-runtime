@@ -92,7 +92,7 @@ The full topic and payload contract is in [MQTT Gateway Contract](https://github
 
 A successful MQTT publish acknowledgement (PUBACK) confirms that the broker accepted a publication. It does **not** prove that the gateway application accepted the device registration.
 
-FogSense therefore waits for a registration acknowledgement on the device's `register/ack` topic. The acknowledgement must contain the same `deviceId` and current `bootId`, with `accepted: true`. Only then does the runtime mark itself registered and flush queued telemetry and events.
+FogSense therefore waits for a registration acknowledgement on the device's `register/ack` topic. The acknowledgement must contain the same `deviceId` and current `bootId`, with `accepted: true`. This also applies to periodic registration/heartbeat messages and reconnects. Queue delivery pauses until the matching acknowledgement is received.
 
 Telemetry and events retain the existing envelope:
 
@@ -120,7 +120,7 @@ docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
   -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
 ```
 
-The runtime executes the command using the same device command engine as its HTTP API and publishes the result to `commands/ack`.
+The runtime executes the command using the same device command engine as its HTTP API and queues the result for `commands/ack`. Command acknowledgements use the same bounded, in-memory outbound queue and retry mechanism as telemetry and events. Their envelope includes `deviceId`, `bootId`, `seq`, and `ts`. A temporary broker outage therefore does not immediately discard the acknowledgement, but a device process restart still loses any messages remaining in the in-memory queue.
 
 The local mock MQTT gateway currently logs received messages and acknowledges registrations. It is a development tool, not a production gateway or durable message processor.
 
