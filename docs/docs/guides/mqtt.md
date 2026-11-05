@@ -141,7 +141,7 @@ $env:MQTT_SENSOR_PASSWORD = "..."
 docker compose -f docker-compose.mqtt.secure.example.yml up --build
 ```
 
-The usernames must match the ACL entries. The MQTT client verifies the broker certificate using the mounted CA at `MQTT_CA_FILE`; TLS mode requires either username/password or a client certificate. The example uses TLS plus per-device username/password authentication. For mutual TLS, set `require_certificate true` in the Mosquitto configuration and provide client certificates with `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE`.
+The usernames must match the ACL entries. The MQTT client verifies the broker certificate using the mounted CA at `MQTT_CA_FILE`; TLS mode requires either username/password or a client certificate. The example uses TLS plus per-device username/password authentication. For mutual TLS as an additional layer, set `require_certificate true` in `examples/mosquitto-secure.conf`, generate a client certificate signed by the same CA for each device and the gateway, and set the container-path variables `MQTT_LIGHT_CLIENT_CERT_FILE`, `MQTT_LIGHT_CLIENT_KEY_FILE`, `MQTT_SENSOR_CLIENT_CERT_FILE`, `MQTT_SENSOR_CLIENT_KEY_FILE`, `MQTT_GATEWAY_CLIENT_CERT_FILE` and `MQTT_GATEWAY_CLIENT_KEY_FILE`. The secure Compose profile mounts `secrets/mosquitto/client` at `/mosquitto/client`; use paths such as `/mosquitto/client/mqtt-light-1.crt` and `/mosquitto/client/mqtt-light-1.key`. Keep username/password authentication too, because the example ACL maps permissions to MQTT usernames.
 
 ## Send a command
 
