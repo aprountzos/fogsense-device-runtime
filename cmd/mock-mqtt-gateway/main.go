@@ -126,14 +126,14 @@ func main() {
 		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
 	}
 
-	seenMessages, err := loadMQTTSeen(*dedupeFile)
-	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
-	if err := initializeMQTTSeen(*dedupeFile, seenMessages); err != nil { log.Fatalf("initialize MQTT deduplication store: %v", err) }
-	dedupeHealthy.Store(true)
 	var seenMu sync.Mutex
 	var ready atomic.Bool
 	var dedupeHealthy atomic.Bool
 	var subscribing atomic.Bool
+	seenMessages, err := loadMQTTSeen(*dedupeFile)
+	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
+	if err := initializeMQTTSeen(*dedupeFile, seenMessages); err != nil { log.Fatalf("initialize MQTT deduplication store: %v", err) }
+	dedupeHealthy.Store(true)
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet || r.URL.Path != "/health" {
