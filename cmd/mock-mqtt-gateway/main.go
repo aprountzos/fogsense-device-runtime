@@ -97,7 +97,7 @@ func main() {
 						}); err != nil {
 							log.Printf("failed to acknowledge registration on %s: %v", ackTopic, err)
 						}
-					} else if messageID, ok := payload["messageId"].(string); ok && messageID != "" {
+					} else if !strings.HasSuffix(received.Packet.Topic, "/delivery/ack") && !strings.HasSuffix(received.Packet.Topic, "/register/ack") && !strings.HasSuffix(received.Packet.Topic, "/commands") {\n\t\t\t\t\t\tif messageID, ok := payload["messageId"].(string); ok && messageID != "" {
 						deviceID, _ := payload["deviceId"].(string)
 						parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
 						if len(parts) < 4 || deviceID == "" || parts[3] != deviceID {
