@@ -15,7 +15,9 @@ import (
 const mqttTopicPrefix = "fogsense/v1/devices"
 
 func (c *Client) startMQTT() {
-	if c.mqttClientID == "" { c.mqttClientID = "fogsense-" + c.dev.DeviceID }
+	if c.mqttClientID == "" {
+		c.mqttClientID = "fogsense-" + c.dev.DeviceID
+	}
 	brokerURL := c.mqttURL
 	if strings.HasPrefix(brokerURL, "mqtts://") {
 		brokerURL = "tls://" + strings.TrimPrefix(brokerURL, "mqtts://")
@@ -50,6 +52,9 @@ func (c *Client) startMQTT() {
 			},
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
+			c.mu.Lock()
+			c.mqtt = cm
+			c.mu.Unlock()
 			topic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
 			subCtx, subCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer subCancel()
@@ -59,9 +64,6 @@ func (c *Client) startMQTT() {
 				log.Printf("MQTT command subscription failed: %v", err)
 				return
 			}
-			c.mu.Lock()
-			c.mqtt = cm
-			c.mu.Unlock()
 			log.Printf("MQTT connected; subscribed to %s", topic)
 		},
 		OnConnectError: func(err error) {
@@ -79,14 +81,7 @@ func (c *Client) startMQTT() {
 	c.mu.Unlock()
 }
 
-func (c *Client) publishMQTT(ctx context.Context, path string, body interface{}) error {
-	c.mu.Lock()
-	cm := c.mqtt
-	c.mu.Unlock()
-	if cm == nil {
-		return fmt.Errorf("MQTT connection is not ready")
-	}
-
+func mqttTopic(deviceID, path string) (string, error) {
 	var messageType string
 	switch {
 	case path == "/devices/register":
@@ -98,14 +93,28 @@ func (c *Client) publishMQTT(ctx context.Context, path string, body interface{})
 	case strings.HasSuffix(path, "/commands/ack"):
 		messageType = "commands/ack"
 	default:
-		return fmt.Errorf("unsupported MQTT gateway path %q", path)
+		return "", fmt.Errorf("unsupported MQTT gateway path %q", path)
+	}
+	return fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, deviceID, messageType), nil
+}
+
+func (c *Client) publishMQTT(ctx context.Context, path string, body interface{}) error {
+	c.mu.Lock()
+	cm := c.mqtt
+	c.mu.Unlock()
+	if cm == nil {
+		return fmt.Errorf("MQTT connection is not ready")
+	}
+
+	topic, err := mqttTopic(c.dev.DeviceID, path)
+	if err != nil {
+		return err
 	}
 
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	topic := fmt.Sprintf("%s/%s/%s", mqttTopicPrefix, c.dev.DeviceID, messageType)
 	_, err = cm.Publish(ctx, &paho.Publish{QoS: 1, Topic: topic, Payload: payload})
 	return err
 }
@@ -115,10 +124,10 @@ func (c *Client) handleMQTTCommand(payload []byte) {
 	var command map[string]interface{}
 	_ = json.Unmarshal(payload, &command)
 	result := map[string]interface{}{
-		"deviceId": c.dev.DeviceID,
+		"deviceId":  c.dev.DeviceID,
 		"commandId": command["commandId"],
-		"status": status,
-		"response": response,
+		"status":    status,
+		"response":  response,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
