@@ -60,6 +60,23 @@ func main() {
 					}
 					encoded, _ := json.Marshal(payload)
 					log.Printf("MQTT %s %s", received.Packet.Topic, encoded)
+					if strings.HasSuffix(received.Packet.Topic, "/register") {
+						deviceID, _ := payload["deviceId"].(string)
+						bootID, _ := payload["bootId"].(string)
+						ack, _ := json.Marshal(map[string]interface{}{
+							"deviceId": deviceID,
+							"bootId": bootID,
+							"accepted": deviceID != "" && bootID != "",
+						})
+						ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+						defer cancel()
+						ackTopic := strings.TrimSuffix(received.Packet.Topic, "/register") + "/register/ack"
+						if _, err := received.Client.Publish(ackCtx, &paho.Publish{
+							QoS: 1, Topic: ackTopic, Payload: ack,
+						}); err != nil {
+							log.Printf("failed to acknowledge registration on %s: %v", ackTopic, err)
+						}
+					}
 					return true, nil
 				},
 			},
