@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"sync"
 	"time"
 )
@@ -44,6 +45,7 @@ var (
 	quiet       bool
 	deviceToken string
 	dedupeFile string
+	dedupeHealthy atomic.Bool
 )
 
 func logTime() string {
@@ -239,6 +241,10 @@ func handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if r.Method == http.MethodGet && path == "/health" {
+			if !dedupeHealthy.Load() {
+				sendJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"status": "DOWN", "reason": "deduplication storage unavailable"})
+				return
+			}
 			mu.Lock()
 			deviceCount := len(devices)
 			mu.Unlock()
@@ -329,6 +335,7 @@ func handler() http.Handler {
 				devices[devID] = rec
 				logMsg("REGISTER %s (%s v%g) at %s [new boot]", devID, devType, version, endpoint)
 			}
+			dedupeHealthy.Store(true)
 			mu.Unlock()
 
 			sendJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -382,6 +389,7 @@ func handler() http.Handler {
 				if rec, exists := devices[devID]; exists {
 					rec.Duplicates++
 				}
+				dedupeHealthy.Store(true)
 				mu.Unlock()
 				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
 				return
@@ -397,6 +405,7 @@ func handler() http.Handler {
 				rec.Duplicates++
 				seenMessages[dedupeKey] = true
 				if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
+					dedupeHealthy.Store(false)
 					delete(seenMessages, dedupeKey)
 					mu.Unlock()
 					sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
@@ -450,6 +459,7 @@ func handler() http.Handler {
 			}
 			seenMessages[dedupeKey] = true
 			if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
+				dedupeHealthy.Store(false)
 				delete(seenMessages, dedupeKey)
 				mu.Unlock()
 				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
@@ -951,6 +961,7 @@ func main() {
 	if err := initializeSeenMessages(dedupeFile, seenMessages); err != nil {
 		log.Fatalf("initialize gateway deduplication store: %v", err)
 	}
+	dedupeHealthy.Store(true)
 
 	port := flag.Int("port", 8081, "listen port")
 	flag.StringVar(&deviceToken, "device-token", "", "require/expect this X-Device-Token")
