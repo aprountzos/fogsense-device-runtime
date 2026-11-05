@@ -65,7 +65,7 @@ func main() {
 			},
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
-			topic := strings.TrimRight(*prefix, "/") + "/+/+"
+			topic := strings.TrimRight(*prefix, "/") + "/#"
 			subCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			_, err := cm.Subscribe(subCtx, &paho.Subscribe{
