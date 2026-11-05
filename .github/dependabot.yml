@@ -2,14 +2,11 @@
 version: 2
 
 updates:
-  # GitHub Actions workflows
+  # GitHub Actions
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    day: monday
-    time: "09:00"
-    timezone: Europe/Athens
     groups:
       github-actions:
         patterns:
@@ -18,14 +15,11 @@ updates:
       - dependencies
       - github-actions
 
-  # Docusaurus dependencies
+  # Docusaurus / npm
   - package-ecosystem: npm
     directory: /docs
     schedule:
       interval: weekly
-      day: monday
-    time: "09:00"
-    timezone: Europe/Athens
     groups:
       npm-minor-patch:
         update-types:
@@ -35,14 +29,11 @@ updates:
       - dependencies
       - npm
 
-  # Go dependencies
+  # Go modules
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
-      day: monday
-      time: "09:00"
-      timezone: Europe/Athens
     groups:
       go-minor-patch:
         update-types:
