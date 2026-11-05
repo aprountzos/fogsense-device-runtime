@@ -91,3 +91,17 @@ func saveOutbox(path string, state outboxState) error {
 	}
 	return nil
 }
+
+func initializeOutbox(path string, state outboxState) error {
+	if path == "" {
+		return nil
+	}
+	_, err := os.Stat(path)
+	if err == nil {
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("inspect outbox %q: %w", path, err)
+	}
+	return saveOutbox(path, state)
+}
