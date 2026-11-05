@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
@@ -99,6 +100,10 @@ func main() {
 	} else {
 		if !strings.HasPrefix(mqttBrokerURL, "mqtt://") && !strings.HasPrefix(mqttBrokerURL, "mqtts://") && !strings.HasPrefix(mqttBrokerURL, "tcp://") {
 			fatal("MQTT_BROKER_URL is required and must start with mqtt:// or mqtts://", nil)
+		}
+		parsedBrokerURL, err := url.Parse(mqttBrokerURL)
+		if err != nil || parsedBrokerURL.Host == "" {
+			fatal("MQTT_BROKER_URL must include a valid broker host", nil)
 		}
 		if (mqttUsername == "") != (mqttPassword == "") {
 			fatal("MQTT_USERNAME and MQTT_PASSWORD must either both be set or both be empty", nil)
