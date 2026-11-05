@@ -51,6 +51,8 @@ func (c *Client) startMQTT() {
 						c.handleMQTTRegistrationAck(received.Packet.Payload)
 					} else if strings.HasSuffix(received.Packet.Topic, "/commands") {
 						c.handleMQTTCommand(received.Packet.Payload)
+					} else if strings.HasSuffix(received.Packet.Topic, "/delivery/ack") {
+						c.handleMQTTDeliveryAck(received.Packet.Payload)
 					}
 					return true, nil
 				},
@@ -64,7 +66,8 @@ func (c *Client) startMQTT() {
 			c.mu.Unlock()
 			commandsTopic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
 			registrationAckTopic := fmt.Sprintf("%s/%s/register/ack", mqttTopicPrefix, c.dev.DeviceID)
-			go c.subscribeMQTT(cm, commandsTopic, registrationAckTopic)
+			deliveryAckTopic := fmt.Sprintf("%s/%s/delivery/ack", mqttTopicPrefix, c.dev.DeviceID)
+			go c.subscribeMQTT(cm, commandsTopic, registrationAckTopic, deliveryAckTopic)
 		},
 		OnConnectError: func(err error) {
 			log.Printf("MQTT connection attempt failed: %v", err)
@@ -89,7 +92,7 @@ func (c *Client) startMQTT() {
 	}
 }
 
-func (c *Client) subscribeMQTT(cm *autopaho.ConnectionManager, commandsTopic, registrationAckTopic string) {
+func (c *Client) subscribeMQTT(cm *autopaho.ConnectionManager, commandsTopic, registrationAckTopic, deliveryAckTopic string) {
 	delay := time.Second
 	for {
 		c.mu.Lock()
@@ -104,6 +107,7 @@ func (c *Client) subscribeMQTT(cm *autopaho.ConnectionManager, commandsTopic, re
 			Subscriptions: []paho.SubscribeOptions{
 				{Topic: commandsTopic, QoS: 1},
 				{Topic: registrationAckTopic, QoS: 1},
+				{Topic: deliveryAckTopic, QoS: 1},
 			},
 		})
 		cancel()
@@ -115,7 +119,7 @@ func (c *Client) subscribeMQTT(cm *autopaho.ConnectionManager, commandsTopic, re
 			}
 			c.mu.Unlock()
 			c.Kick()
-			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
+			log.Printf("MQTT connected; subscribed to %s, %s and %s", commandsTopic, registrationAckTopic, deliveryAckTopic)
 			return
 		}
 
@@ -227,4 +231,59 @@ func (c *Client) handleMQTTCommand(payload []byte) {
 	// the result after a temporary broker outage.
 	c.enqueue("/devices/commands/ack", result)
 	c.Kick()
+}
+
+func (c *Client) publishMQTTAndWaitAck(ctx context.Context, msg OutboundMessage) error {
+	ack := make(chan bool, 1)
+	c.mu.Lock()
+	if c.mqttAckWaiters == nil {
+		c.mqttAckWaiters = make(map[string]chan bool)
+	}
+	c.mqttAckWaiters[msg.MessageID] = ack
+	c.mu.Unlock()
+
+	defer func() {
+		c.mu.Lock()
+		delete(c.mqttAckWaiters, msg.MessageID)
+		c.mu.Unlock()
+	}()
+
+	if err := c.publishMQTT(ctx, msg.Path, msg.Body); err != nil {
+		return err
+	}
+	select {
+	case accepted := <-ack:
+		if !accepted {
+			return fmt.Errorf("gateway rejected message %s", msg.MessageID)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("timed out waiting for gateway application acknowledgement for %s: %w", msg.MessageID, ctx.Err())
+	}
+}
+
+func (c *Client) handleMQTTDeliveryAck(payload []byte) {
+	var ack struct {
+		DeviceID  string `json:"deviceId"`
+		MessageID string `json:"messageId"`
+		Accepted  bool   `json:"accepted"`
+	}
+	if err := json.Unmarshal(payload, &ack); err != nil {
+		log.Printf("invalid MQTT delivery acknowledgement: %v", err)
+		return
+	}
+	if ack.DeviceID != c.dev.DeviceID || ack.MessageID == "" {
+		log.Printf("ignoring MQTT delivery acknowledgement with mismatched device or empty messageId")
+		return
+	}
+	c.mu.Lock()
+	waiter := c.mqttAckWaiters[ack.MessageID]
+	c.mu.Unlock()
+	if waiter == nil {
+		return
+	}
+	select {
+	case waiter <- ack.Accepted:
+	default:
+	}
 }
