@@ -192,3 +192,20 @@ func TestOutboxRejectsNewestMessageWhenFull(t *testing.T) {
 		t.Fatalf("oldest queued sequence = %v, want 1", got)
 	}
 }
+
+func TestClientInitializationFailsOnCorruptOutbox(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox.json")
+	if err := os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(Config{
+		Device:    &device.Device{DeviceID: "light-1", BootID: "boot-one"},
+		OutboxPath: path,
+	})
+	if client.InitializationError() == nil {
+		t.Fatal("expected corrupt persisted outbox to prevent startup")
+	}
+	if client.outboxHealthy {
+		t.Fatal("outbox health must be false when recovery fails")
+	}
+}
