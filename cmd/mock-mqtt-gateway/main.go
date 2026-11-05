@@ -41,7 +41,10 @@ func maintainSubscription(ctx context.Context, cm *autopaho.ConnectionManager, t
 		select {
 		case <-ctx.Done():
 			if !timer.Stop() {
-				<-timer.C
+				select {
+				case <-timer.C:
+				default:
+				}
 			}
 			return
 		case <-timer.C:
