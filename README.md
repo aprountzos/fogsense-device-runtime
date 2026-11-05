@@ -120,7 +120,7 @@ $env:DEVICE_SPEC_FILE = "examples/smart-light.yaml"
 go run .
 ```
 
-For HTTP, the existing `DEVICE_TOKEN` continues to be sent to the gateway as `X-Device-Token` and is also used to protect the device's local HTTP API. Use `https://` for encrypted HTTP connections. MQTT broker credentials are separate from the local HTTP API token.
+For HTTP, `GATEWAY_TOKEN` is sent to the gateway as `X-Device-Token`; it falls back to `DEVICE_TOKEN` for backward compatibility. `DEVICE_TOKEN` protects the device's local HTTP API. Use `https://` for encrypted HTTP connections. MQTT broker credentials are separate from both HTTP tokens.
 
 ## Package registry
 
@@ -309,7 +309,8 @@ docker compose -f docker-compose.example.yml up --build
 | `MQTT_CLIENT_ID` | no | MQTT client ID (default `fogsense-<DEVICE_ID>`) |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | no | Optional MQTT CONNECT credentials; set both or neither |
 | `DEVICE_SPEC_B64` / `DEVICE_SPEC` / `DEVICE_SPEC_FILE` | one of three | Device spec as base64 YAML, YAML string, or file path (default `/config/spec.yaml`) |
-| `DEVICE_TOKEN` | no | HTTP gateway token (`X-Device-Token`) and local device API token; it is separate from MQTT credentials |
+| `DEVICE_TOKEN` | no | Token required by the device local HTTP API; also used as the HTTP gateway token when `GATEWAY_TOKEN` is unset |
+| `GATEWAY_TOKEN` | no | HTTP gateway token sent as `X-Device-Token`; defaults to `DEVICE_TOKEN` for backward compatibility |
 | `ADVERTISE_URL` | no | URL the gateway uses to reach the device (default `http://<hostname>:<PORT>`) |
 | `PORT` | no | Default `8080` |
 | `REGISTER_INTERVAL_SEC` | no | Heartbeat registration period; default `30` |
