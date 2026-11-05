@@ -99,6 +99,27 @@ jobs:
           echo "$logs"
           echo "$logs" | grep -q "/commands/ack"
 
+      - name: Verify MQTT recovery after broker restart
+        run: |
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-broker
+
+          recovered=0
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-sensor mqtt-gateway)"
+            light_registers="$(echo "$logs" | grep -c 'MQTT fogsense/v1/devices/mqtt-light-1/register ' || true)"
+            sensor_registers="$(echo "$logs" | grep -c 'MQTT fogsense/v1/devices/mqtt-sensor-1/register ' || true)"
+            sensor_telemetry="$(echo "$logs" | grep -c 'MQTT fogsense/v1/devices/mqtt-sensor-1/telemetry ' || true)"
+
+            if [ "$light_registers" -ge 2 ] && [ "$sensor_registers" -ge 2 ] && [ "$sensor_telemetry" -ge 2 ]; then
+              recovered=1
+              break
+            fi
+            sleep 2
+          done
+
+          echo "$logs"
+          test "$recovered" -eq 1
+
       - name: Stop MQTT playground
         if: always()
         run: docker compose -f docker-compose.mqtt.example.yml down -v
