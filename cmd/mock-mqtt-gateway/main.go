@@ -17,12 +17,6 @@ import (
 	"github.com/eclipse/paho.golang/paho"
 )
 
-func topicLeaf(topic string) string {
-	parts := strings.Split(strings.Trim(topic, "/"), "/")
-	if len(parts) == 0 { return "" }
-	return parts[len(parts)-1]
-}
-
 func main() {
 	brokerURL := flag.String("broker-url", "mqtt://127.0.0.1:1883", "MQTT 5 broker URL (mqtt:// or mqtts://)")
 	clientID := flag.String("client-id", "fogsense-mock-gateway", "MQTT client identifier")
@@ -91,7 +85,8 @@ func main() {
 						})
 						ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 						defer cancel()
-						ackTopic := strings.TrimSuffix(received.Packet.Topic, "/"+topicLeaf(received.Packet.Topic)) + "/delivery/ack"
+						parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
+						ackTopic := strings.Join(parts[:4], "/") + "/delivery/ack"
 						if _, err := received.Client.Publish(ackCtx, &paho.Publish{
 							QoS: 1, Topic: ackTopic, Payload: ack,
 						}); err != nil {
