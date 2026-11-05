@@ -11,6 +11,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -42,6 +43,7 @@ var (
 	seenMessages = make(map[string]bool)
 	quiet       bool
 	deviceToken string
+	dedupeFile string
 )
 
 func logTime() string {
@@ -383,6 +385,11 @@ func handler() http.Handler {
 			if rec.Seen[seq] {
 				rec.Duplicates++
 				seenMessages[dedupeKey] = true
+				if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
+					mu.Unlock()
+					sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+					return
+				}
 				mu.Unlock()
 				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true})
 				return
@@ -394,8 +401,14 @@ func handler() http.Handler {
 			if seq < rec.MaxSeq {
 				rec.OutOfOrder++
 			}
-			rec.Seen[seq] = true
 			seenMessages[dedupeKey] = true
+			if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
+				delete(seenMessages, dedupeKey)
+				mu.Unlock()
+				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+				return
+			}
+			rec.Seen[seq] = true
 			if seq > rec.MaxSeq {
 				rec.MaxSeq = seq
 			}
@@ -914,6 +927,16 @@ func runChecks(port int, devToken, ctrlToken, overrideDevURL string, timeoutSec 
 }
 
 func main() {
+	dedupeFile = os.Getenv("GATEWAY_DEDUPE_FILE")
+	if dedupeFile == "" {
+		dedupeFile = filepath.Join("data", "gateway-dedupe.json")
+	}
+	loadedMessages, err := loadSeenMessages(dedupeFile)
+	if err != nil {
+		log.Fatalf("load gateway deduplication store: %v", err)
+	}
+	seenMessages = loadedMessages
+
 	port := flag.Int("port", 8081, "listen port")
 	flag.StringVar(&deviceToken, "device-token", "", "require/expect this X-Device-Token")
 	controlToken := flag.String("control-token", "", "control token for /control API checks")
