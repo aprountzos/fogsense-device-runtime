@@ -18,6 +18,7 @@ func resetGatewayTestState(path string) {
 	seenMessages = make(map[string]bool)
 	dedupeFile = path
 	deviceToken = ""
+	dedupeHealthy.Store(true)
 	quiet = true
 }
 
@@ -160,5 +161,10 @@ func TestHTTPGatewayDoesNotAcknowledgeWhenDedupeStoreIsUnavailable(t *testing.T)
 		if res.Code != http.StatusServiceUnavailable {
 			t.Fatalf("attempt %d status = %d, want 503: %s", attempt+1, res.Code, res.Body.String())
 		}
+	}
+	health := httptest.NewRecorder()
+	h.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
+	if health.Code != http.StatusServiceUnavailable {
+		t.Fatalf("health status = %d, want 503 while dedupe storage is unavailable", health.Code)
 	}
 }
