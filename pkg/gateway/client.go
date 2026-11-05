@@ -400,7 +400,7 @@ func (c *Client) doFlush() {
 		cancel()
 
 		c.mu.Lock()
-		if err != nil || statusCode == 429 || statusCode >= 500 {
+		if err != nil || statusCode == 408 || statusCode == 429 || statusCode >= 500 {
 			c.flushFailures++
 			c.mu.Unlock()
 			return
@@ -434,12 +434,14 @@ func (c *Client) doFlush() {
 		log.Printf(`{"level":"warn","msg":"gateway refused a message, dropping it","status":%d}`, statusCode)
 		if len(c.queue) > 0 {
 			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
-			if err := c.persistOutboxLocked(c.seq, nextQueue, c.dropped); err != nil {
+			nextDropped := c.dropped + 1
+			if err := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); err != nil {
 				log.Printf("failed to persist rejected-message removal: %v", err)
 				c.mu.Unlock()
 				return
 			}
 			c.queue = nextQueue
+			c.dropped = nextDropped
 		}
 		c.mu.Unlock()
 	}
@@ -455,6 +457,10 @@ func (c *Client) Stats() ClientStats {
 		Seq:        c.seq,
 		OutboxPath: c.outboxPath,
 	}
+}
+
+func (c *Client) InitializationError() error {
+	return c.outboxErr
 }
 
 func (c *Client) IsRegistered() bool {
