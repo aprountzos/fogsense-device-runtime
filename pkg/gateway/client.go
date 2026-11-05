@@ -44,6 +44,7 @@ type ClientStats struct {
 	OldestQueuedAt string `json:"oldestQueuedAt,omitempty"`
 	OldestMessageAgeSeconds float64 `json:"oldestMessageAgeSeconds"`
 	FlushFailures int `json:"flushFailures"`
+	RegisterFailures int `json:"registerFailures"`
 	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
 	NextRetryAt string `json:"nextRetryAt,omitempty"`
 	LastError string `json:"lastError,omitempty"`
@@ -525,6 +526,7 @@ func (c *Client) Stats() ClientStats {
 		OutboxPath: c.outboxPath,
 		OutboxHealthy: c.outboxHealthy,
 		FlushFailures: c.flushFailures,
+		RegisterFailures: c.registerFailures,
 		LastError: c.lastError,
 	}
 	if !c.lastSuccessAt.IsZero() {
