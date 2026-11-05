@@ -72,19 +72,10 @@ func (c *Client) startMQTT() {
 			c.mu.Lock()
 			c.mqtt = cm
 			c.mqttReady = true
-			c.mu.Unlock()
-			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
-		},
-		OnConnectionDown: func() bool {
-			c.mu.Lock()
-			stopped := c.stopped
 			c.registered = false
-			c.mqttReady = false
 			c.mu.Unlock()
-			if !stopped {
-				c.Kick()
-			}
-			return !stopped
+			c.Kick()
+			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
 		},
 		OnConnectError: func(err error) {
 			log.Printf("MQTT connection attempt failed: %v", err)
