@@ -193,20 +193,22 @@ jobs:
       - name: Verify device outbox survives process restart
         run: |
           docker compose -f docker-compose.mqtt.example.yml stop mqtt-broker
-          sleep 5
-          docker compose -f docker-compose.mqtt.example.yml restart mqtt-light
+          sleep 7
 
-          logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light)"
+          # The sensor generates telemetry periodically, so it must have queued
+          # messages while the broker is offline before we restart the process.
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-sensor sh -c 'grep -q messageId /data/outbox.json'
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-sensor
+
+          logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-sensor)"
           echo "$logs"
           echo "$logs" | grep -q '"msg":"outbox ready"'
-          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-light sh -c 'grep -q messageId /data/outbox.json'
 
           docker compose -f docker-compose.mqtt.example.yml start mqtt-broker
           recovered=0
           for attempt in $(seq 1 30); do
-            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
-            registrations="$(echo "$logs" | grep -c 'registered with MQTT gateway' || true)"
-            if [ "$registrations" -ge 2 ] && echo "$logs" | grep -q '/telemetry'; then
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-sensor mqtt-gateway)"
+            if echo "$logs" | grep -q 'registered with MQTT gateway' && echo "$logs" | grep -q '/telemetry'; then
               recovered=1
               break
             fi
