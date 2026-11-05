@@ -63,6 +63,9 @@ type Client struct {
 	mqttClientID        string
 	mqttUsername        string
 	mqttPassword        string
+	mqttCAFile          string
+	mqttClientCertFile  string
+	mqttClientKeyFile   string
 	mqtt                *autopaho.ConnectionManager
 	mqttReady           bool
 	mqttAckWaiters      map[string]chan bool
@@ -82,6 +85,9 @@ type Config struct {
 	MQTTClientID        string
 	MQTTUsername        string
 	MQTTPassword        string
+	MQTTCAFile          string
+	MQTTClientCertFile  string
+	MQTTClientKeyFile   string
 	OutboxPath          string
 }
 
@@ -124,6 +130,9 @@ func NewClient(cfg Config) *Client {
 		mqttClientID:        cfg.MQTTClientID,
 		mqttUsername:        cfg.MQTTUsername,
 		mqttPassword:        cfg.MQTTPassword,
+		mqttCAFile:          cfg.MQTTCAFile,
+		mqttClientCertFile:  cfg.MQTTClientCertFile,
+		mqttClientKeyFile:   cfg.MQTTClientKeyFile,
 		dev:                 cfg.Device,
 		endpoint:            cfg.Endpoint,
 		token:               cfg.Token,
