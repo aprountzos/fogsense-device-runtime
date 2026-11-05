@@ -23,6 +23,12 @@
 
 FogSense Device Runtime is a reference Go runtime for simulated IoT devices. Each device runs in its own container and exposes a standard HTTP API. The gateway or platform is responsible for discovery, registration, orchestration, and command routing.
 
+## Documentation and releases
+
+- [Documentation source](docs/docs/intro.md)
+- [Changelog](CHANGELOG.md)
+- [GitHub Releases](https://github.com/aprountzos/fogsense-device-runtime/releases)
+
 ## Overview
 
 <div align="left">
