@@ -87,9 +87,9 @@ The local device HTTP API is a separate security boundary from the device-to-gat
 
 4. **Operational visibility and lifecycle — partially implemented**
    - The control/status response exposes queue depth, dropped count, sequence, outbox path/health, oldest-message age, retry failures, last successful delivery and last error.
-   - Both mock gateways expose readiness health endpoints; the MQTT Compose healthcheck now checks subscription readiness.
+   - Both mock gateways expose readiness health endpoints that include deduplication-store availability; the MQTT Compose healthcheck checks subscription readiness.
    - Transient HTTP failures (including 408, 429 and 5xx) and MQTT acknowledgement timeouts retain messages for retry. Permanent rejections are counted and removed.
-   - Remaining: oldest-message age, retry counters, last successful delivery, disk-health indicators, and meaningful MQTT gateway health checks.
+   - Remaining: disk-space thresholds/alerts, durable payload journaling in the production gateway, and shutdown/disk-full fault-injection coverage.
 
 5. **Conformance and local test suite — in progress**
    - Added unit tests for outbox recovery/corruption, stable IDs, queue capacity, HTTP acknowledgement/retry behavior, MQTT acknowledgement matching, custom CA configuration, and gateway deduplication persistence.
