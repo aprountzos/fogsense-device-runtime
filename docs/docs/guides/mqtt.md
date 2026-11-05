@@ -45,7 +45,7 @@ Follow the logs:
 docker compose -f docker-compose.mqtt.example.yml logs -f mqtt-light mqtt-gateway
 ```
 
-The example broker permits anonymous connections for local development only. Do not expose it to an untrusted network.
+The example broker permits anonymous connections for local development only. Do not expose it to an untrusted network. For a TLS/authenticated local profile, see `docker-compose.mqtt.secure.example.yml` and the secure broker examples below.
 
 ## Configure a device
 
@@ -105,11 +105,11 @@ Telemetry and events retain the existing envelope:
 }
 ```
 
-MQTT publications use QoS 1 (at-least-once). Consumers must tolerate duplicates and deduplicate using `(deviceId, bootId, seq)`. Sequence numbers are shared across telemetry and events for one device boot.
+MQTT publications use QoS 1 (at-least-once broker delivery). The device does not remove an outbox message on PUBACK: it waits for the gateway application to publish a matching `delivery/ack` message containing `deviceId`, `messageId` and `accepted: true`. Consumers deduplicate using `(deviceId, messageId)`; `bootId` and `seq` are retained for diagnostics and ordering.
 
-The outbound queue is shared by the HTTP and MQTT transports. MQTT publish failures leave messages queued for retry. The queue is in memory; it does not survive a device process restart.
+The outbound outbox is shared by HTTP and MQTT. It is disk-backed by default at `data/outbox-<DEVICE_ID>.json` (override with `OUTBOX_PATH`) and atomically saves enqueue, acknowledgement and sequence state. Each message has a stable `messageId`; recovered messages keep that ID and sequence while being associated with the current device boot. The outbox is bounded to 500 messages. When full, new messages are rejected and the dropped counter is incremented; messages are not silently evicted. Persist the containing directory or Docker volume.
 
-## Send a command
+## Secure MQTT playground\n\nPrepare a private `secrets/mosquitto` directory (do not commit it), create a CA and a server certificate whose subject alternative name includes `DNS:mqtt-broker`, and create the password file:\n\n```powershell\nNew-Item -ItemType Directory -Force secrets/mosquitto/certs | Out-Null\n# Generate CA/server certificates with your approved PKI or OpenSSL tooling.\nmosquitto_passwd -c secrets/mosquitto/passwd mqtt-light-1\nmosquitto_passwd secrets/mosquitto/passwd mqtt-sensor-1\nmosquitto_passwd secrets/mosquitto/passwd fogsense-mock-gateway\nCopy-Item examples/mosquitto-acl.example secrets/mosquitto/acl\n```\n\nSet the gateway password in `$env:MQTT_GATEWAY_PASSWORD`, then start the profile:\n\n```powershell\ndocker compose -f docker-compose.mqtt.secure.example.yml up --build\n```\n\nSet the corresponding device passwords in the compose environment before starting. The example ACL binds device permissions to the MQTT username. For mutual TLS, also provide a client certificate/key pair with `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE`.\n\n## Send a command
 
 Publish a command to the device's command topic:
 
