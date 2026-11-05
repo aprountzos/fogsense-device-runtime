@@ -39,6 +39,7 @@ type DeviceRecord struct {
 var (
 	mu          sync.Mutex
 	devices     = make(map[string]*DeviceRecord)
+	seenMessages = make(map[string]bool)
 	quiet       bool
 	deviceToken string
 )
@@ -89,6 +90,9 @@ func tokenOk(r *http.Request) bool {
 
 // Validation helpers
 func validateEnvelope(b map[string]interface{}, errors *[]string) {
+	if messageID, ok := b["messageId"].(string); !ok || messageID == "" {
+		*errors = append(*errors, "messageId (stable string) is required")
+	}
 	if devID, ok := b["deviceId"].(string); !ok || devID == "" {
 		*errors = append(*errors, "deviceId (string) is required")
 	}
@@ -357,8 +361,18 @@ func handler() http.Handler {
 
 			bootID, _ := body["bootId"].(string)
 			seq := toInt64(body["seq"])
+			messageID, _ := body["messageId"].(string)
+			dedupeKey := devID + ":" + messageID
 
 			mu.Lock()
+			if seenMessages[dedupeKey] {
+				if rec, exists := devices[devID]; exists {
+					rec.Duplicates++
+				}
+				mu.Unlock()
+				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
+				return
+			}
 			rec, exists := devices[devID]
 			if !exists || rec.BootID != bootID {
 				mu.Unlock()
@@ -368,6 +382,7 @@ func handler() http.Handler {
 
 			if rec.Seen[seq] {
 				rec.Duplicates++
+				seenMessages[dedupeKey] = true
 				mu.Unlock()
 				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true})
 				return
@@ -380,6 +395,7 @@ func handler() http.Handler {
 				rec.OutOfOrder++
 			}
 			rec.Seen[seq] = true
+			seenMessages[dedupeKey] = true
 			if seq > rec.MaxSeq {
 				rec.MaxSeq = seq
 			}
