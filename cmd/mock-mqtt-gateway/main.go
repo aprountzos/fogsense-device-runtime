@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -22,6 +25,7 @@ func main() {
 	clientID := flag.String("client-id", "fogsense-mock-gateway", "MQTT client identifier")
 	username := flag.String("username", "", "optional MQTT username")
 	password := flag.String("password", "", "optional MQTT password")
+	caFile := flag.String("ca-file", "", "optional PEM CA bundle used to verify the broker")
 	prefix := flag.String("topic-prefix", "fogsense/v1/devices", "device topic prefix")
 	flag.Parse()
 
@@ -37,10 +41,21 @@ func main() {
 		log.Fatal("broker URL must use mqtt:// or mqtts://")
 	}
 
+	var tlsConfig *tls.Config
+	if *caFile != "" {
+		pem, err := os.ReadFile(*caFile)
+		if err != nil { log.Fatalf("read CA file: %v", err) }
+		roots, err := x509.SystemCertPool()
+		if err != nil || roots == nil { roots = x509.NewCertPool() }
+		if !roots.AppendCertsFromPEM(pem) { log.Fatal("CA file contains no certificates") }
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	cfg := autopaho.ClientConfig{
+		TlsCfg:                        tlsConfig,
 		ServerUrls:                    []*url.URL{u},
 		KeepAlive:                     30,
 		CleanStartOnInitialConnection: true,
