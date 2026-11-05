@@ -202,6 +202,9 @@ func main() {
 		MQTTClientKeyFile:   mqttClientKeyFile,
 		OutboxPath:          outboxPath,
 	})
+	if err := gwClient.InitializationError(); err != nil {
+		fatal("cannot initialize persistent gateway outbox", map[string]interface{}{"error": err.Error(), "outboxPath": outboxPath})
+	}
 
 	dev.OnEvent(func(evt device.Event) {
 		gwClient.EnqueueEvent(evt)
