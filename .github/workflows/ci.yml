@@ -15,7 +15,6 @@ on:
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
       - 'docker-compose.mqtt.secure.example.yml'
-      - 'docker-compose.mqtt.secure.example.yml'
       - 'docs/**'
       - '.github/workflows/**'
   pull_request:
