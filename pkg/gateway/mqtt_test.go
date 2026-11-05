@@ -94,7 +94,7 @@ func TestMQTTCommandAcknowledgementIsQueued(t *testing.T) {
 }
 
 func TestMQTTHeartbeatRequiresFreshRegistrationAck(t *testing.T) {
-	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current", Spec: &spec.DeviceSpec{}}
 	client := NewClient(Config{Device: dev, Transport: "mqtt"})
 	client.registered = true
 
