@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -135,5 +136,29 @@ func TestHTTPGatewayDeduplicationSurvivesGatewayRestart(t *testing.T) {
 	}
 	if response["duplicate"] != true {
 		t.Fatalf("replay response = %v, want duplicate=true", response)
+	}
+}
+
+func TestHTTPGatewayDoesNotAcknowledgeWhenDedupeStoreIsUnavailable(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("block"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(blocker, "dedupe.json")
+	resetGatewayTestState(path)
+	h := handler()
+	registerTestDevice(t, h)
+
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	message := map[string]interface{}{
+		"deviceId": "light-1", "bootId": "boot-1", "messageId": "message-no-disk",
+		"seq": 1, "ts": ts,
+		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 20.0, "ts": ts}},
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		res := postGatewayJSON(t, h, "/devices/light-1/telemetry", message)
+		if res.Code != http.StatusServiceUnavailable {
+			t.Fatalf("attempt %d status = %d, want 503: %s", attempt+1, res.Code, res.Body.String())
+		}
 	}
 }
