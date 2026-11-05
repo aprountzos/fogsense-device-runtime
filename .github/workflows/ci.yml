@@ -86,7 +86,7 @@ jobs:
             sleep 2
           done
           echo "$logs"
-          echo "$logs" | grep -q "registered with gateway"
+          echo "$logs" | grep -q "registered with MQTT gateway"
           echo "$logs" | grep -q "/telemetry"
 
           docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \
