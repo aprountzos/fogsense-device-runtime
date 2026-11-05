@@ -2,10 +2,13 @@ package gateway
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -36,7 +39,13 @@ func (c *Client) startMQTT() {
 	c.mqttCancel = cancel
 	c.mu.Unlock()
 
+	tlsConfig, tlsErr := buildMQTTTLSConfig(c.mqttCAFile, c.mqttClientCertFile, c.mqttClientKeyFile)
+	if tlsErr != nil {
+		log.Printf("MQTT TLS configuration failed: %v", tlsErr)
+		return
+	}
 	cfg := autopaho.ClientConfig{
+		TlsCfg:                        tlsConfig,
 		ServerUrls:                    []*url.URL{u},
 		KeepAlive:                     30,
 		CleanStartOnInitialConnection: true,
@@ -286,4 +295,36 @@ func (c *Client) handleMQTTDeliveryAck(payload []byte) {
 	case waiter <- ack.Accepted:
 	default:
 	}
+}
+
+func buildMQTTTLSConfig(caFile, certFile, keyFile string) (*tls.Config, error) {
+	if caFile == "" && certFile == "" && keyFile == "" {
+		return nil, nil
+	}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("read MQTT CA file: %w", err)
+		}
+		roots, err := x509.SystemCertPool()
+		if err != nil || roots == nil {
+			roots = x509.NewCertPool()
+		}
+		if ok := roots.AppendCertsFromPEM(pem); !ok {
+			return nil, fmt.Errorf("MQTT CA file %q contains no certificates", caFile)
+		}
+		cfg.RootCAs = roots
+	}
+	if (certFile == "") != (keyFile == "") {
+		return nil, fmt.Errorf("MQTT_CLIENT_CERT_FILE and MQTT_CLIENT_KEY_FILE must be set together")
+	}
+	if certFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("load MQTT client certificate: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+	}
+	return cfg, nil
 }
