@@ -112,7 +112,7 @@ curl http://localhost:8081/debug/devices
 
 ## MQTT Docker Compose playground
 
-For an MQTT-based setup, the repository also includes `docker-compose.mqtt.example.yml`. It starts a local Mosquitto broker, the MQTT mock gateway and one smart-light device:
+For an MQTT-based setup, the repository also includes `docker-compose.mqtt.example.yml`. It starts a local Mosquitto broker, the MQTT mock gateway, a smart-light device and a temperature sensor:
 
 ```bash
 docker compose -f docker-compose.mqtt.example.yml up --build
