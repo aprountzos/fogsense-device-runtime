@@ -58,7 +58,11 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml
 | `GATEWAY_TOKEN` | _(none)_ | HTTP gateway token sent as `X-Device-Token`; falls back to `DEVICE_TOKEN` for backwards compatibility |
 | `MQTT_CLIENT_ID` | `fogsense-<DEVICE_ID>` | MQTT client identifier |
 | `MQTT_USERNAME` | _(none)_ | Optional MQTT broker username; set together with password |
-| `MQTT_PASSWORD` | _(none)_ | Optional MQTT broker password; set together with username |\n| `MQTT_CA_FILE` | _(system trust)_ | PEM CA bundle for a private MQTT broker CA |\n| `MQTT_CLIENT_CERT_FILE` | _(none)_ | Optional client certificate for mutual TLS; set with key |\n| `MQTT_CLIENT_KEY_FILE` | _(none)_ | Optional client private key for mutual TLS; set with certificate |\n| `OUTBOX_PATH` | `data/outbox-<DEVICE_ID>.json` | Persistent HTTP/MQTT outbound outbox file |
+| `MQTT_PASSWORD` | _(none)_ | Optional MQTT broker password; set together with username |
+| `MQTT_CA_FILE` | _(system trust)_ | PEM CA bundle for a private MQTT broker CA |
+| `MQTT_CLIENT_CERT_FILE` | _(none)_ | Optional client certificate for mutual TLS; set with key |
+| `MQTT_CLIENT_KEY_FILE` | _(none)_ | Optional client private key for mutual TLS; set with certificate |
+| `OUTBOX_PATH` | `data/outbox-<DEVICE_ID>.json` | Persistent HTTP/MQTT outbound outbox file |
 | `ADVERTISE_URL` | `http://<hostname>:<PORT>` | URL the gateway uses to reach this device. Override when the hostname isn't routable (e.g., Docker) |
 | `PORT` | `8080` | HTTP port for the device API |
 | `REGISTER_INTERVAL_SEC` | `30` | Seconds between heartbeat registrations |
