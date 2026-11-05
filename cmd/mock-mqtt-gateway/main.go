@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,43 @@ import (
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/paho"
 )
+
+func validateMQTTDeliveryMessage(payload map[string]interface{}, topic, prefix string) (string, string, string) {
+	normalizedTopic := strings.Trim(topic, "/")
+	normalizedPrefix := strings.Trim(prefix, "/")
+	if !strings.HasPrefix(normalizedTopic, normalizedPrefix+"/") {
+		return "", "", "topic is outside the configured device namespace"
+	}
+	relative := strings.TrimPrefix(normalizedTopic, normalizedPrefix+"/")
+	parts := strings.Split(relative, "/")
+	if len(parts) < 2 || parts[0] == "" {
+		return "", "", "topic does not contain a device ID and message type"
+	}
+	deviceID := parts[0]
+	messageID, _ := payload["messageId"].(string)
+	if messageID == "" {
+		return deviceID, "", "messageId is required"
+	}
+	bodyDeviceID, _ := payload["deviceId"].(string)
+	if bodyDeviceID != deviceID {
+		return deviceID, messageID, "deviceId does not match the topic"
+	}
+	if bootID, ok := payload["bootId"].(string); !ok || bootID == "" {
+		return deviceID, messageID, "bootId is required"
+	}
+	seq, ok := payload["seq"].(float64)
+	if !ok || seq < 1 || seq != math.Trunc(seq) {
+		return deviceID, messageID, "seq must be a positive integer"
+	}
+	if ts, ok := payload["ts"].(string); !ok || ts == "" {
+		return deviceID, messageID, "ts is required"
+	}
+	messageType := strings.Join(parts[1:], "/")
+	if messageType != "telemetry" && messageType != "events" && messageType != "commands/ack" {
+		return deviceID, messageID, "unsupported device publication topic"
+	}
+	return deviceID, messageID, ""
+}
 
 func maintainSubscription(ctx context.Context, cm *autopaho.ConnectionManager, topic string, ready *atomic.Bool) {
 	backoff := time.Second
@@ -167,10 +205,24 @@ func main() {
 						!strings.HasSuffix(received.Packet.Topic, "/register/ack") &&
 						!strings.HasSuffix(received.Packet.Topic, "/commands") {
 						if messageID, ok := payload["messageId"].(string); ok && messageID != "" {
-							deviceID, _ := payload["deviceId"].(string)
-							parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
-							if len(parts) < 4 || deviceID == "" || parts[3] != deviceID {
-								log.Printf("cannot accept message with mismatched device/topic on %s", received.Packet.Topic)
+							deviceID, messageID, validationError := validateMQTTDeliveryMessage(payload, received.Packet.Topic, *prefix)
+							if deviceID == "" {
+								log.Printf("cannot accept message on malformed topic %s", received.Packet.Topic)
+								return true, nil
+							}
+							if validationError != "" {
+								ack, _ := json.Marshal(map[string]interface{}{
+									"deviceId": deviceID,
+									"messageId": messageID,
+									"accepted": false,
+									"reason": validationError,
+								})
+								ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+								defer cancel()
+								ackTopic := strings.TrimRight(*prefix, "/") + "/" + deviceID + "/delivery/ack"
+								if _, err := received.Client.Publish(ackCtx, &paho.Publish{QoS: 1, Topic: ackTopic, Payload: ack}); err != nil {
+									log.Printf("failed to reject malformed delivery on %s: %v", ackTopic, err)
+								}
 								return true, nil
 							}
 							dedupeKey := deviceID + ":" + messageID
@@ -196,7 +248,7 @@ func main() {
 							})
 							ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 							defer cancel()
-							ackTopic := strings.Join(parts[:4], "/") + "/delivery/ack"
+							ackTopic := strings.TrimRight(*prefix, "/") + "/" + deviceID + "/delivery/ack"
 							if _, err := received.Client.Publish(ackCtx, &paho.Publish{
 								QoS: 1, Topic: ackTopic, Payload: ack,
 							}); err != nil {
