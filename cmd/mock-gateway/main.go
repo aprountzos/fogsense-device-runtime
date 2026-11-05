@@ -397,6 +397,7 @@ func handler() http.Handler {
 				rec.Duplicates++
 				seenMessages[dedupeKey] = true
 				if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
+					delete(seenMessages, dedupeKey)
 					mu.Unlock()
 					sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
 					return
