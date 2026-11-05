@@ -97,41 +97,45 @@ func main() {
 						}); err != nil {
 							log.Printf("failed to acknowledge registration on %s: %v", ackTopic, err)
 						}
-					} else if !strings.HasSuffix(received.Packet.Topic, "/delivery/ack") && !strings.HasSuffix(received.Packet.Topic, "/register/ack") && !strings.HasSuffix(received.Packet.Topic, "/commands") {\n\t\t\t\t\t\tif messageID, ok := payload["messageId"].(string); ok && messageID != "" {
-						deviceID, _ := payload["deviceId"].(string)
-						parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
-						if len(parts) < 4 || deviceID == "" || parts[3] != deviceID {
-							log.Printf("cannot accept message with mismatched device/topic on %s", received.Packet.Topic)
-							return true, nil
-						}
-						dedupeKey := deviceID + ":" + messageID
-						seenMu.Lock()
-						duplicate := seenMessages[dedupeKey]
-						if !duplicate {
-							seenMessages[dedupeKey] = true
-							if err := saveMQTTSeen(*dedupeFile, seenMessages); err != nil {
-								delete(seenMessages, dedupeKey)
-								seenMu.Unlock()
-								log.Printf("cannot persist message acceptance for %s: %v", messageID, err)
+					} else if !strings.HasSuffix(received.Packet.Topic, "/delivery/ack") &&
+						!strings.HasSuffix(received.Packet.Topic, "/register/ack") &&
+						!strings.HasSuffix(received.Packet.Topic, "/commands") {
+						if messageID, ok := payload["messageId"].(string); ok && messageID != "" {
+							deviceID, _ := payload["deviceId"].(string)
+							parts := strings.Split(strings.Trim(received.Packet.Topic, "/"), "/")
+							if len(parts) < 4 || deviceID == "" || parts[3] != deviceID {
+								log.Printf("cannot accept message with mismatched device/topic on %s", received.Packet.Topic)
 								return true, nil
 							}
-						}
-						seenMu.Unlock()
-						if duplicate {
-							log.Printf("duplicate MQTT message %s from %s; acknowledging without reprocessing", messageID, deviceID)
-						}
-						ack, _ := json.Marshal(map[string]interface{}{
-							"deviceId": deviceID,
-							"messageId": messageID,
-							"accepted": true,
-						})
-						ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-						defer cancel()
-						ackTopic := strings.Join(parts[:4], "/") + "/delivery/ack"
-						if _, err := received.Client.Publish(ackCtx, &paho.Publish{
-							QoS: 1, Topic: ackTopic, Payload: ack,
-						}); err != nil {
-							log.Printf("failed to acknowledge delivery on %s: %v", ackTopic, err)
+							dedupeKey := deviceID + ":" + messageID
+							seenMu.Lock()
+							duplicate := seenMessages[dedupeKey]
+							if !duplicate {
+								seenMessages[dedupeKey] = true
+								if err := saveMQTTSeen(*dedupeFile, seenMessages); err != nil {
+									delete(seenMessages, dedupeKey)
+									seenMu.Unlock()
+									log.Printf("cannot persist message acceptance for %s: %v", messageID, err)
+									return true, nil
+								}
+							}
+							seenMu.Unlock()
+							if duplicate {
+								log.Printf("duplicate MQTT message %s from %s; acknowledging without reprocessing", messageID, deviceID)
+							}
+							ack, _ := json.Marshal(map[string]interface{}{
+								"deviceId": deviceID,
+								"messageId": messageID,
+								"accepted": true,
+							})
+							ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+							defer cancel()
+							ackTopic := strings.Join(parts[:4], "/") + "/delivery/ack"
+							if _, err := received.Client.Publish(ackCtx, &paho.Publish{
+								QoS: 1, Topic: ackTopic, Payload: ack,
+							}); err != nil {
+								log.Printf("failed to acknowledge delivery on %s: %v", ackTopic, err)
+							}
 						}
 					}
 					return true, nil
