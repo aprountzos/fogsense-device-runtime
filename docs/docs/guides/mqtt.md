@@ -84,7 +84,7 @@ The current topic namespace is `fogsense/v1/devices`.
 | Device → gateway | `fogsense/v1/devices/{deviceId}/telemetry` | Telemetry batches |
 | Device → gateway | `fogsense/v1/devices/{deviceId}/events` | State/status events |
 | Gateway → device | `fogsense/v1/devices/{deviceId}/commands` | Device commands |
-| Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` | Command execution result |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` | Command execution result |\n| Gateway → device | `fogsense/v1/devices/{deviceId}/delivery/ack` | Application-level message acceptance |
 
 The full topic and payload contract is in [MQTT Gateway Contract](https://github.com/aprountzos/fogsense-device-runtime/blob/main/contract/mqtt-gateway.md).
 
@@ -99,6 +99,7 @@ Telemetry and events retain the existing envelope:
 ```json
 {
   "deviceId": "light-1",
+  "messageId": "stable-uuid-for-this-message",
   "bootId": "boot-id-for-this-process",
   "seq": 42,
   "ts": "2026-11-05T12:00:00.000Z"
@@ -139,7 +140,7 @@ $env:MQTT_SENSOR_PASSWORD = "..."
 docker compose -f docker-compose.mqtt.secure.example.yml up --build
 ```
 
-The usernames must match the ACL entries. The example uses TLS plus per-device username/password authentication. For mutual TLS, set `require_certificate true` in the Mosquitto configuration and provide client certificates with `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE`.
+The usernames must match the ACL entries. The MQTT client verifies the broker certificate using the mounted CA at `MQTT_CA_FILE`; TLS mode requires either username/password or a client certificate. The example uses TLS plus per-device username/password authentication. For mutual TLS, set `require_certificate true` in the Mosquitto configuration and provide client certificates with `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE`.
 
 ## Send a command
 
@@ -165,7 +166,7 @@ MQTT credentials are independent from the device's local HTTP API token and the 
 | `MQTT_BROKER_URL` | MQTT | Broker URL: `mqtt://host:1883` or `mqtts://host:8883` |
 | `MQTT_CLIENT_ID` | No | Client identifier; defaults to `fogsense-<DEVICE_ID>` |
 | `MQTT_USERNAME` | No | MQTT CONNECT username |
-| `MQTT_PASSWORD` | No | MQTT CONNECT password; set together with username |
+| `MQTT_PASSWORD` | No | MQTT CONNECT password; set together with username |\n| `MQTT_CA_FILE` | No | PEM CA bundle for a private broker CA |\n| `MQTT_CLIENT_CERT_FILE` | No | Optional client certificate for mutual TLS; set with key |\n| `MQTT_CLIENT_KEY_FILE` | No | Optional client private key for mutual TLS; set with certificate |\n| `OUTBOX_PATH` | `data/outbox-<DEVICE_ID>.json` | Persistent outbound outbox file |
 
 Example for a TLS-enabled broker:
 
