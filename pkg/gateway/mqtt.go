@@ -46,7 +46,11 @@ func (c *Client) startMQTT() {
 			ClientID: c.mqttClientID,
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
 				func(received paho.PublishReceived) (bool, error) {
-					c.handleMQTTCommand(received.Packet.Payload)
+					if strings.HasSuffix(received.Packet.Topic, "/register/ack") {
+						c.handleMQTTRegistrationAck(received.Packet.Payload)
+					} else if strings.HasSuffix(received.Packet.Topic, "/commands") {
+						c.handleMQTTCommand(received.Packet.Payload)
+					}
 					return true, nil
 				},
 			},
@@ -55,16 +59,30 @@ func (c *Client) startMQTT() {
 			c.mu.Lock()
 			c.mqtt = cm
 			c.mu.Unlock()
-			topic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
+			commandsTopic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
+			registrationAckTopic := fmt.Sprintf("%s/%s/register/ack", mqttTopicPrefix, c.dev.DeviceID)
 			subCtx, subCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer subCancel()
 			if _, err := cm.Subscribe(subCtx, &paho.Subscribe{
-				Subscriptions: []paho.SubscribeOptions{{Topic: topic, QoS: 1}},
+				Subscriptions: []paho.SubscribeOptions{
+					{Topic: commandsTopic, QoS: 1},
+					{Topic: registrationAckTopic, QoS: 1},
+				},
 			}); err != nil {
 				log.Printf("MQTT command subscription failed: %v", err)
 				return
 			}
-			log.Printf("MQTT connected; subscribed to %s", topic)
+			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
+		},
+		OnConnectionDown: func() bool {
+			c.mu.Lock()
+			stopped := c.stopped
+			c.registered = false
+			c.mu.Unlock()
+			if !stopped {
+				c.Kick()
+			}
+			return !stopped
 		},
 		OnConnectError: func(err error) {
 			log.Printf("MQTT connection attempt failed: %v", err)
@@ -117,6 +135,30 @@ func (c *Client) publishMQTT(ctx context.Context, path string, body interface{})
 	}
 	_, err = cm.Publish(ctx, &paho.Publish{QoS: 1, Topic: topic, Payload: payload})
 	return err
+}
+
+func (c *Client) handleMQTTRegistrationAck(payload []byte) {
+	var ack struct {
+		DeviceID string `json:"deviceId"`
+		BootID   string `json:"bootId"`
+		Accepted bool   `json:"accepted"`
+	}
+	if err := json.Unmarshal(payload, &ack); err != nil {
+		log.Printf("invalid MQTT registration acknowledgement: %v", err)
+		return
+	}
+	if !ack.Accepted || ack.DeviceID != c.dev.DeviceID || ack.BootID != c.dev.BootID {
+		log.Printf("MQTT registration acknowledgement rejected or did not match this device boot")
+		return
+	}
+	c.mu.Lock()
+	wasRegistered := c.registered
+	c.registered = true
+	c.registerFailures = 0
+	c.mu.Unlock()
+	if !wasRegistered {
+		log.Printf("registered with MQTT gateway")
+	}
 }
 
 func (c *Client) handleMQTTCommand(payload []byte) {
