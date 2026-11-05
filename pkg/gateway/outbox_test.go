@@ -227,3 +227,35 @@ func TestClientInitializationCreatesOutboxFile(t *testing.T) {
 		t.Fatal("outbox path is a directory, want file")
 	}
 }
+
+func TestTransientFailureSchedulesBackoffAndSuccessClearsIt(t *testing.T) {
+	attempt := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempt++
+		if attempt == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+
+	client := NewClient(Config{
+		GatewayURL: server.URL,
+		Device:     &device.Device{DeviceID: "light-1", BootID: "boot-one"},
+	})
+	client.enqueue("/devices/light-1/events", map[string]interface{}{"type": "STATUS_CHANGED"})
+	client.registered = true
+	client.doFlush()
+
+	failed := client.Stats()
+	if failed.FlushFailures != 1 || failed.NextRetryAt == "" {
+		t.Fatalf("stats after transient failure = %+v, want one failure and a scheduled retry", failed)
+	}
+
+	client.doFlush()
+	recovered := client.Stats()
+	if recovered.FlushFailures != 0 || recovered.NextRetryAt != "" || recovered.Queued != 0 {
+		t.Fatalf("stats after successful retry = %+v, want empty queue and cleared backoff", recovered)
+	}
+}
