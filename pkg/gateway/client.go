@@ -60,6 +60,7 @@ type Client struct {
 	mqttUsername        string
 	mqttPassword        string
 	mqtt                *autopaho.ConnectionManager
+	mqttReady           bool
 	mqttCancel          context.CancelFunc
 	kickChan            chan struct{}
 	stopChan            chan struct{}
