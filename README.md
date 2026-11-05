@@ -96,7 +96,7 @@ HTTP remains the default gateway transport. Devices can alternatively publish re
 docker compose -f docker-compose.mqtt.example.yml up --build
 ```
 
-The local playground starts a Mosquitto broker, a small MQTT mock gateway subscriber, and YAML-configured smart-light and temperature-sensor devices. The mock gateway prints messages received on the device topics.
+The local playground starts a Mosquitto broker, an MQTT mock gateway, and YAML-configured smart-light and temperature-sensor devices. The gateway persists accepted message IDs and sends application-level acknowledgements.
 
 The device subscribes to its own command topic and publishes command acknowledgements:
 
@@ -109,7 +109,7 @@ The device subscribes to its own command topic and publishes command acknowledge
 | Gateway → device | `fogsense/v1/devices/{deviceId}/register/ack` |
 | Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` |
 
-Messages retain the device envelope (`deviceId`, `bootId`, `seq`, and `ts`). The runtime publishes with QoS 1, which is at-least-once delivery: a gateway must deduplicate messages using the device/boot/sequence identity. MQTT registration is completed only after the gateway publishes an application-level acknowledgement containing the matching `deviceId`, `bootId`, and `accepted: true`. The runtime then begins flushing telemetry and events. MQTT command payloads use the same JSON command shape as `POST /commands`.
+Outbound messages include a stable `messageId` plus `deviceId`, `bootId`, `seq`, and `ts`. The runtime uses QoS 1 and retains messages in a shared disk-backed outbox until the gateway application acknowledges them. The gateway deduplicates by `(deviceId, messageId)`. Registration still uses its own application-level acknowledgement. The outbox is bounded to 500 messages and defaults to `data/outbox-<DEVICE_ID>.json`; persist this path across restarts. MQTT command payloads use the same JSON command shape as `POST /commands`.
 
 Send a command to the demo light from another terminal:
 
@@ -120,7 +120,7 @@ docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
   -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
 ```
 
-The playground broker allows anonymous access for local development only. For a real deployment, use an MQTT broker with TLS and per-device credentials/ACLs. A device should be allowed to publish only to its own registration, telemetry, events, and acknowledgement topics, and subscribe only to its own command topic.
+The playground broker allows anonymous access for local development only. For a real deployment, use an MQTT broker with TLS and per-device credentials/ACLs. A TLS-authenticated local example is available in `docker-compose.mqtt.secure.example.yml`. A device should be allowed to publish only to its own registration, telemetry, events, and acknowledgement topics, and subscribe only to its own command topic.
 
 To use a broker with credentials:
 
@@ -136,7 +136,7 @@ $env:DEVICE_SPEC_FILE = "examples/smart-light.yaml"
 go run .
 ```
 
-For HTTP, `GATEWAY_TOKEN` is sent to the gateway as `X-Device-Token`; it falls back to `DEVICE_TOKEN` for backward compatibility. `DEVICE_TOKEN` protects the device's local HTTP API. Use `https://` for encrypted HTTP connections. MQTT broker credentials are separate from both HTTP tokens.
+For HTTP, `GATEWAY_TOKEN` is sent to the gateway as `X-Device-Token`; it falls back to `DEVICE_TOKEN` for backward compatibility. `DEVICE_TOKEN` protects the device's local HTTP API. Use `https://` for encrypted HTTP connections. MQTT broker credentials are separate from both HTTP tokens. Both transports use the same persistent outbox and stable message IDs.
 
 ## Package registry
 
@@ -160,7 +160,7 @@ Use the registry that matches your environment and access-control model.
 | `examples/*.yaml` | Sample specs (smart light, temperature sensor, thermostat, door lock) |
 | `cmd/mock-gateway/` | HTTP mock gateway and conformance runner |
 | `cmd/mock-mqtt-gateway/` | MQTT mock gateway subscriber for local testing |
-| `docker-compose.mqtt.example.yml` | Local Mosquitto + MQTT device playground |
+| `docker-compose.mqtt.example.yml` | Local Mosquitto + MQTT device playground |\n| `docker-compose.mqtt.secure.example.yml` | TLS/authenticated MQTT playground |
 | `docs/` | Docusaurus documentation website |
 | `MAINTAINERS.md` | Publishing, release, and maintainer notes |
 
