@@ -80,9 +80,32 @@ func main() {
 		fatal("DEVICE_ID is required and must match [A-Za-z0-9_.-]{1,64}", nil)
 	}
 
+	gatewayTransport := strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_TRANSPORT")))
+	if gatewayTransport == "" {
+		gatewayTransport = "http"
+	}
+	if gatewayTransport != "http" && gatewayTransport != "mqtt" {
+		fatal("GATEWAY_TRANSPORT must be http or mqtt", nil)
+	}
 	gatewayURL := strings.TrimRight(os.Getenv("GATEWAY_URL"), "/")
-	if !strings.HasPrefix(gatewayURL, "http://") && !strings.HasPrefix(gatewayURL, "https://") {
-		fatal("GATEWAY_URL is required and must start with http:// or https://", nil)
+	mqttBrokerURL := strings.TrimSpace(os.Getenv("MQTT_BROKER_URL"))
+	mqttClientID := strings.TrimSpace(os.Getenv("MQTT_CLIENT_ID"))
+	mqttUsername := os.Getenv("MQTT_USERNAME")
+	mqttPassword := os.Getenv("MQTT_PASSWORD")
+	if gatewayTransport == "http" {
+		if !strings.HasPrefix(gatewayURL, "http://") && !strings.HasPrefix(gatewayURL, "https://") {
+			fatal("GATEWAY_URL is required for HTTP transport and must start with http:// or https://", nil)
+		}
+	} else {
+		if mqttBrokerURL == "" {
+			fatal("MQTT_BROKER_URL is required when GATEWAY_TRANSPORT=mqtt", nil)
+		}
+		if (mqttUsername == "") != (mqttPassword == "") {
+			fatal("MQTT_USERNAME and MQTT_PASSWORD must either both be set or both be empty", nil)
+		}
+		if mqttClientID == "" {
+			mqttClientID = "fogsense-" + deviceID
+		}
 	}
 
 	port := os.Getenv("PORT")
@@ -152,6 +175,11 @@ func main() {
 		Endpoint:            advertiseURL,
 		Token:               deviceToken,
 		RegisterIntervalSec: registerIntervalSec,
+		Transport:           gatewayTransport,
+		MQTTURL:             mqttBrokerURL,
+		MQTTClientID:        mqttClientID,
+		MQTTUsername:        mqttUsername,
+		MQTTPassword:        mqttPassword,
 	})
 
 	dev.OnEvent(func(evt device.Event) {
@@ -211,7 +239,9 @@ func main() {
 			"version":   valRes.Spec.Version,
 			"port":      port,
 			"endpoint":  advertiseURL,
-			"gateway":   gatewayURL,
+			"gatewayTransport": gatewayTransport,
+			"gateway":          gatewayURL,
+			"mqttBroker":       mqttBrokerURL,
 			"timeScale": timeScale,
 			"auth":      authState,
 			"control":   controlState,
