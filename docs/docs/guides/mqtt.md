@@ -141,7 +141,33 @@ $env:MQTT_SENSOR_PASSWORD = "..."
 docker compose -f docker-compose.mqtt.secure.example.yml up --build
 ```
 
-The usernames must match the ACL entries. The MQTT client verifies the broker certificate using the mounted CA at `MQTT_CA_FILE`; TLS mode requires either username/password or a client certificate. The example uses TLS plus per-device username/password authentication. For mutual TLS as an additional layer, set `require_certificate true` in `examples/mosquitto-secure.conf`, generate a client certificate signed by the same CA for each device and the gateway, and set the container-path variables `MQTT_LIGHT_CLIENT_CERT_FILE`, `MQTT_LIGHT_CLIENT_KEY_FILE`, `MQTT_SENSOR_CLIENT_CERT_FILE`, `MQTT_SENSOR_CLIENT_KEY_FILE`, `MQTT_GATEWAY_CLIENT_CERT_FILE` and `MQTT_GATEWAY_CLIENT_KEY_FILE`. The secure Compose profile mounts `secrets/mosquitto/client` at `/mosquitto/client`; use paths such as `/mosquitto/client/mqtt-light-1.crt` and `/mosquitto/client/mqtt-light-1.key`. Keep username/password authentication too, because the example ACL maps permissions to MQTT usernames.
+The usernames must match the ACL entries. The MQTT client verifies the broker certificate using the mounted CA at `MQTT_CA_FILE`; TLS mode requires either username/password or a client certificate. The example uses TLS plus per-device username/password authentication. For mutual TLS as an additional layer:
+
+1. Set `require_certificate true` in `examples/mosquitto-secure.conf`.
+2. Generate a client certificate signed by the same CA for each device and the gateway:
+
+```powershell
+New-Item -ItemType Directory -Force secrets/mosquitto/client | Out-Null
+$clients = @("mqtt-light-1", "mqtt-sensor-1", "fogsense-mock-gateway")
+foreach ($client in $clients) {
+  openssl req -newkey rsa:2048 -nodes -keyout "secrets/mosquitto/client/$client.key" -out "secrets/mosquitto/client/$client.csr" -subj "/CN=$client"
+  "extendedKeyUsage=clientAuth" | Set-Content -Encoding ascii "secrets/mosquitto/client/$client.ext"
+  openssl x509 -req -in "secrets/mosquitto/client/$client.csr" -CA secrets/mosquitto/certs/ca.crt -CAkey secrets/mosquitto/certs/ca.key -CAcreateserial -out "secrets/mosquitto/client/$client.crt" -days 825 -sha256 -extfile "secrets/mosquitto/client/$client.ext"
+}
+```
+
+3. Set the container paths before starting Compose:
+
+```powershell
+$env:MQTT_LIGHT_CLIENT_CERT_FILE = "/mosquitto/client/mqtt-light-1.crt"
+$env:MQTT_LIGHT_CLIENT_KEY_FILE = "/mosquitto/client/mqtt-light-1.key"
+$env:MQTT_SENSOR_CLIENT_CERT_FILE = "/mosquitto/client/mqtt-sensor-1.crt"
+$env:MQTT_SENSOR_CLIENT_KEY_FILE = "/mosquitto/client/mqtt-sensor-1.key"
+$env:MQTT_GATEWAY_CLIENT_CERT_FILE = "/mosquitto/client/fogsense-mock-gateway.crt"
+$env:MQTT_GATEWAY_CLIENT_KEY_FILE = "/mosquitto/client/fogsense-mock-gateway.key"
+```
+
+The secure Compose profile mounts `secrets/mosquitto/client` at `/mosquitto/client`. Keep username/password authentication too, because the example ACL maps permissions to MQTT usernames.
 
 ## Send a command
 
