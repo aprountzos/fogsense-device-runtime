@@ -14,7 +14,9 @@ The device runtime is configured entirely through **environment variables**. No 
 | Variable | Format | Description |
 |---|---|---|
 | `DEVICE_ID` | `[A-Za-z0-9_.-]{1,64}` | Unique identifier for this device instance |
-| `GATEWAY_URL` | `http://...` or `https://...` | Base URL of the Fog Gateway |
+| `GATEWAY_TRANSPORT` | `http` or `mqtt` | Gateway transport; defaults to `http` |
+| `GATEWAY_URL` | `http://...` or `https://...` | Required when using HTTP; base URL of the Fog Gateway |
+| `MQTT_BROKER_URL` | `mqtt://...` or `mqtts://...` | Required when using MQTT 5; broker address |
 
 ## Device Spec (One Required)
 
@@ -52,7 +54,11 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml
 
 | Variable | Default | Description |
 |---|---|---|
-| `DEVICE_TOKEN` | _(none)_ | Shared secret for device API authentication. Sent as `X-Device-Token` header and required from API callers |
+| `DEVICE_TOKEN` | _(none)_ | Token required by callers of the local device HTTP API |
+| `GATEWAY_TOKEN` | _(none)_ | HTTP gateway token sent as `X-Device-Token`; falls back to `DEVICE_TOKEN` for backwards compatibility |
+| `MQTT_CLIENT_ID` | `fogsense-<DEVICE_ID>` | MQTT client identifier |
+| `MQTT_USERNAME` | _(none)_ | Optional MQTT broker username; set together with password |
+| `MQTT_PASSWORD` | _(none)_ | Optional MQTT broker password; set together with username |
 | `ADVERTISE_URL` | `http://<hostname>:<PORT>` | URL the gateway uses to reach this device. Override when the hostname isn't routable (e.g., Docker) |
 | `PORT` | `8080` | HTTP port for the device API |
 | `REGISTER_INTERVAL_SEC` | `30` | Seconds between heartbeat registrations |
@@ -65,7 +71,7 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml
 At startup, the runtime validates:
 
 1. `DEVICE_ID`: must be present and match `[A-Za-z0-9_.-]{1,64}`
-2. `GATEWAY_URL`: must be present and start with `http://` or `https://`
+2. Gateway configuration: HTTP requires `GATEWAY_URL` (`http://` or `https://`); MQTT requires `MQTT_BROKER_URL` (`mqtt://` or `mqtts://`). MQTT username and password must be configured together.
 3. `TIME_SCALE`: must be a number in `(0, 1000]`
 4. Device spec: must be valid YAML that passes all structural and semantic validation
 
@@ -117,3 +123,18 @@ docker run --rm \
   -e DEVICE_SPEC_B64="$(base64 -w0 custom-spec.yaml)" \
   fogsense-device-runtime
 ```
+
+### MQTT broker with credentials
+
+```bash
+DEVICE_ID=light-1
+GATEWAY_TRANSPORT=mqtt
+MQTT_BROKER_URL=mqtts://broker.example.com:8883
+MQTT_CLIENT_ID=fogsense-light-1
+MQTT_USERNAME=light-1
+MQTT_PASSWORD=<inject-from-secret-store>
+DEVICE_TOKEN=<local-device-api-token>
+DEVICE_SPEC_FILE=examples/smart-light.yaml
+```
+
+MQTT credentials authenticate the broker connection; they do not protect the device's local HTTP API. Use TLS and per-device topic ACLs in production. See the [MQTT guide](./mqtt.md).
