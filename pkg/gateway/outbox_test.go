@@ -259,3 +259,21 @@ func TestTransientFailureSchedulesBackoffAndSuccessClearsIt(t *testing.T) {
 		t.Fatalf("stats after successful retry = %+v, want empty queue and cleared backoff", recovered)
 	}
 }
+
+func TestOutboxRejectsInconsistentMessageIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "outbox.json")
+	state := outboxState{
+		Version: 1,
+		Queue: []OutboundMessage{{
+			MessageID: "message-a",
+			Path:      "/devices/light-1/events",
+			Body:      map[string]interface{}{"messageId": "message-b"},
+		}},
+	}
+	if err := saveOutbox(path, state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadOutbox(path); err == nil {
+		t.Fatal("expected inconsistent stable message identity to fail recovery")
+	}
+}
