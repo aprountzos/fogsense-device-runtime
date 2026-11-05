@@ -57,29 +57,13 @@ func (c *Client) startMQTT() {
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
 			c.mu.Lock()
+			c.mqtt = cm
 			c.mqttReady = false
 			c.registered = false
 			c.mu.Unlock()
 			commandsTopic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
 			registrationAckTopic := fmt.Sprintf("%s/%s/register/ack", mqttTopicPrefix, c.dev.DeviceID)
-			subCtx, subCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer subCancel()
-			if _, err := cm.Subscribe(subCtx, &paho.Subscribe{
-				Subscriptions: []paho.SubscribeOptions{
-					{Topic: commandsTopic, QoS: 1},
-					{Topic: registrationAckTopic, QoS: 1},
-				},
-			}); err != nil {
-				log.Printf("MQTT command subscription failed: %v", err)
-				return
-			}
-			c.mu.Lock()
-			c.mqtt = cm
-			c.mqttReady = true
-			c.registered = false
-			c.mu.Unlock()
-			c.Kick()
-			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
+			go c.subscribeMQTT(cm, commandsTopic, registrationAckTopic)
 		},
 		OnConnectError: func(err error) {
 			log.Printf("MQTT connection attempt failed: %v", err)
@@ -101,6 +85,48 @@ func (c *Client) startMQTT() {
 		disconnectCtx, disconnectCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer disconnectCancel()
 		_ = cm.Disconnect(disconnectCtx)
+	}
+}
+
+func (c *Client) subscribeMQTT(cm *autopaho.ConnectionManager, commandsTopic, registrationAckTopic string) {
+	delay := time.Second
+	for {
+		c.mu.Lock()
+		stopped := c.stopped
+		c.mu.Unlock()
+		if stopped {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_, err := cm.Subscribe(ctx, &paho.Subscribe{
+			Subscriptions: []paho.SubscribeOptions{
+				{Topic: commandsTopic, QoS: 1},
+				{Topic: registrationAckTopic, QoS: 1},
+			},
+		})
+		cancel()
+		if err == nil {
+			c.mu.Lock()
+			if !c.stopped && c.mqtt == cm {
+				c.mqttReady = true
+				c.registered = false
+			}
+			c.mu.Unlock()
+			c.Kick()
+			log.Printf("MQTT connected; subscribed to %s and %s", commandsTopic, registrationAckTopic)
+			return
+		}
+
+		log.Printf("MQTT subscription failed; retrying: %v", err)
+		select {
+		case <-c.stopChan:
+			return
+		case <-time.After(delay):
+		}
+		if delay < 30*time.Second {
+			delay *= 2
+		}
 	}
 }
 
