@@ -237,11 +237,15 @@ func main() {
 		if controlToken != "" {
 			controlState = "enabled"
 		}
-		authState := "none"
+		gatewayAuthState := "none"
 		if gatewayTransport == "http" && gatewayToken != "" {
-			authState = "http-token"
+			gatewayAuthState = "http-token"
 		} else if gatewayTransport == "mqtt" && mqttUsername != "" {
-			authState = "mqtt-username-password"
+			gatewayAuthState = "mqtt-username-password"
+		}
+		deviceAPIAuthState := "none"
+		if deviceToken != "" {
+			deviceAPIAuthState = "token"
 		}
 
 		logJSON("info", "device runtime started", map[string]interface{}{
@@ -254,7 +258,8 @@ func main() {
 			"gateway":          gatewayURL,
 			"mqttBroker":       mqttBrokerURL,
 			"timeScale": timeScale,
-			"auth":      authState,
+			"gatewayAuth": gatewayAuthState,
+			"deviceAPIAuth": deviceAPIAuthState,
 			"control":   controlState,
 		})
 
