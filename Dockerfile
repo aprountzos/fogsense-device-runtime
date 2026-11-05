@@ -1,5 +1,5 @@
 # FogSense device runtime: one container = one simulated device.
-# Multi-stage build producing a lightweight static binary (< 18 MB total image).
+# Multi-stage build producing lightweight static runtime and mock gateway binaries.
 
 # Stage 1: Build static binary
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
