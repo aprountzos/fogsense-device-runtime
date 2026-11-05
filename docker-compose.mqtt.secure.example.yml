@@ -23,6 +23,10 @@ services:
     volumes:
       - mqtt-secure-gateway-data:/data
       - ./secrets/mosquitto/certs:/mosquitto/certs:ro
+      - ./secrets/mosquitto/client:/mosquitto/client:ro
+    environment:
+      MQTT_GATEWAY_CLIENT_CERT_FILE: ${MQTT_GATEWAY_CLIENT_CERT_FILE:-}
+      MQTT_GATEWAY_CLIENT_KEY_FILE: ${MQTT_GATEWAY_CLIENT_KEY_FILE:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
       interval: 10s
@@ -38,6 +42,8 @@ services:
       GATEWAY_TRANSPORT: mqtt
       MQTT_BROKER_URL: mqtts://mqtt-broker:8883
       MQTT_CA_FILE: /mosquitto/certs/ca.crt
+      MQTT_CLIENT_CERT_FILE: ${MQTT_LIGHT_CLIENT_CERT_FILE:-}
+      MQTT_CLIENT_KEY_FILE: ${MQTT_LIGHT_CLIENT_KEY_FILE:-}
       MQTT_USERNAME: mqtt-light-1
       MQTT_PASSWORD: ${MQTT_LIGHT_PASSWORD:?set MQTT_LIGHT_PASSWORD}
       DEVICE_TOKEN: ${DEVICE_TOKEN:-}
@@ -47,6 +53,7 @@ services:
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
       - ./secrets/mosquitto/certs:/mosquitto/certs:ro
+      - ./secrets/mosquitto/client:/mosquitto/client:ro
       - mqtt-light-secure-outbox:/data
 
   mqtt-sensor:
@@ -57,6 +64,8 @@ services:
       GATEWAY_TRANSPORT: mqtt
       MQTT_BROKER_URL: mqtts://mqtt-broker:8883
       MQTT_CA_FILE: /mosquitto/certs/ca.crt
+      MQTT_CLIENT_CERT_FILE: ${MQTT_SENSOR_CLIENT_CERT_FILE:-}
+      MQTT_CLIENT_KEY_FILE: ${MQTT_SENSOR_CLIENT_KEY_FILE:-}
       MQTT_USERNAME: mqtt-sensor-1
       MQTT_PASSWORD: ${MQTT_SENSOR_PASSWORD:?set MQTT_SENSOR_PASSWORD}
       ADVERTISE_URL: http://mqtt-sensor:8080
@@ -65,6 +74,7 @@ services:
     volumes:
       - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
       - ./secrets/mosquitto/certs:/mosquitto/certs:ro
+      - ./secrets/mosquitto/client:/mosquitto/client:ro
       - mqtt-sensor-secure-outbox:/data
 
 volumes:
