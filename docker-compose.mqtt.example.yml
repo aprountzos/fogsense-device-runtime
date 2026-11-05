@@ -1,0 +1,37 @@
+# MQTT transport playground (local development only).
+#
+#   docker compose -f docker-compose.mqtt.example.yml up --build
+#   docker compose -f docker-compose.mqtt.example.yml logs -f mqtt-gateway
+#
+# This broker deliberately allows anonymous connections for a frictionless local demo.
+# Do not expose it to an untrusted network. Configure TLS, password_file and ACLs for real deployments.
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./examples/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  mqtt-gateway:
+    build: .
+    entrypoint: ["fogsense-mock-mqtt-gateway"]
+    command: ["--broker-url", "mqtt://mqtt-broker:1883"]
+    depends_on: [mqtt-broker]
+
+  mqtt-light:
+    build: .
+    depends_on: [mqtt-broker]
+    environment:
+      DEVICE_ID: mqtt-light-1
+      GATEWAY_TRANSPORT: mqtt
+      MQTT_BROKER_URL: mqtt://mqtt-broker:1883
+      DEVICE_TOKEN: demo-device-token
+      ADVERTISE_URL: http://mqtt-light:8080
+      DEVICE_SPEC_FILE: /config/spec.yaml
+    volumes:
+      - ./examples/smart-light.yaml:/config/spec.yaml:ro
+    ports:
+      - "8083:8080"
