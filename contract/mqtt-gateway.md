@@ -8,7 +8,7 @@ This document defines the MQTT alternative to the HTTP gateway API. The device's
 - Supported broker URL schemes: `mqtt://` and `mqtts://`
 - Default client ID: `fogsense-<DEVICE_ID>`
 - Optional CONNECT username/password are configured independently from HTTP tokens.
-- The device uses QoS 1 for publications and its command/registration-ack subscriptions.
+- The device uses QoS 1 for publications and its command, registration-ack and delivery-ack subscriptions. The device also keeps a disk-backed outbox by default.
 - Messages are not retained.
 
 ## Topics
@@ -22,7 +22,7 @@ The topic prefix is `fogsense/v1/devices`.
 | `fogsense/v1/devices/{deviceId}/telemetry` | Device | Telemetry batches |
 | `fogsense/v1/devices/{deviceId}/events` | Device | Device events |
 | `fogsense/v1/devices/{deviceId}/commands` | Gateway | Commands for one device |
-| `fogsense/v1/devices/{deviceId}/commands/ack` | Device | Command execution result |
+| `fogsense/v1/devices/{deviceId}/commands/ack` | Device | Command execution result |\n| `fogsense/v1/devices/{deviceId}/delivery/ack` | Gateway | Application-level acceptance of an outbound message |
 
 ## Registration
 
@@ -47,9 +47,9 @@ Telemetry and event payloads retain the existing HTTP envelope:
 - `deviceId`: stable device identifier
 - `bootId`: identifier generated for this runtime boot
 - `seq`: monotonically increasing sequence number for this boot
-- `ts`: UTC RFC3339Nano timestamp
+- `ts`: UTC RFC3339Nano timestamp\n- `messageId`: stable UUID generated once when enqueued and preserved across retries and process restarts
 
-QoS 1 is at-least-once delivery. The gateway must tolerate duplicates and deduplicate using `(deviceId, bootId, seq)`. Sequence values are shared across telemetry and events for a device boot.
+QoS 1 is at-least-once broker delivery, not gateway application acceptance. The device retains each message in its persistent outbox until it receives a matching `delivery/ack` with `accepted: true`. The gateway must tolerate duplicates and deduplicate using `(deviceId, messageId)`. `bootId` and `seq` remain diagnostic and ordering fields; the device rebinds recovered messages to its current boot while preserving their original messageId and sequence.
 
 ## Commands
 
@@ -63,15 +63,15 @@ The gateway publishes the same JSON command payload accepted by the device's `PO
 }
 ```
 
-The device queues the execution result for publication to `commands/ack`, including `deviceId`, `bootId`, `seq`, `ts`, `commandId`, numeric `status`, and the existing response body. Command acknowledgements use the same bounded in-memory outbound queue and retry path as telemetry/events, so a temporary broker outage does not immediately discard an acknowledgement. The queue is limited to 500 messages and is not durable across a device process restart. `commandId` is used by the device's existing command idempotency cache; consumers must still tolerate QoS 1 duplicates.
+The device queues the execution result for publication to `commands/ack`, including `deviceId`, `bootId`, `seq`, `ts`, `commandId`, numeric `status`, and the existing response body. Command acknowledgements use the same bounded persistent outbox and application-acknowledgement path as telemetry/events, so they survive a device process restart when the outbox volume is retained. `commandId` is used by the device's existing command idempotency cache; consumers must still tolerate QoS 1 duplicates.
 
 ## Authentication and authorization
 
-Use broker-side authentication and topic ACLs. Recommended per-device permissions:
+Use broker-side authentication and topic ACLs. The secure local profile is provided by `docker-compose.mqtt.secure.example.yml`, `examples/mosquitto-secure.conf` and `examples/mosquitto-acl.example`. Configure `MQTT_CA_FILE` when the broker certificate is issued by a private CA; optional `MQTT_CLIENT_CERT_FILE` and `MQTT_CLIENT_KEY_FILE` enable mutual TLS. Recommended per-device permissions:
 
 - Publish only to that device's `register`, `telemetry`, `events`, and `commands/ack` topics.
 - Subscribe only to that device's `commands` and `register/ack` topics.
 - Deny wildcard subscriptions and access to other device IDs.
 - Require TLS (`mqtts://`) outside isolated local development.
 
-The local `docker-compose.mqtt.example.yml` playground deliberately enables anonymous broker access and is not a production security configuration. HTTP uses `GATEWAY_TOKEN` (sent as `X-Device-Token`) and `DEVICE_TOKEN` for the local device API; these are separate from MQTT broker credentials.
+The local `docker-compose.mqtt.example.yml` playground deliberately enables anonymous broker access and is not a production security configuration. The default outbox path is `data/outbox-<DEVICE_ID>.json`; set `OUTBOX_PATH` to choose another path. The outbox is atomically replaced and uses restrictive file permissions. Persist its containing directory/volume. The secure compose profile mounts named volumes for this purpose. HTTP uses `GATEWAY_TOKEN` (sent as `X-Device-Token`) and `DEVICE_TOKEN` for the local device API; these are separate from MQTT broker credentials.
