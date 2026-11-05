@@ -28,8 +28,9 @@ const (
 )
 
 type OutboundMessage struct {
-	Path string
-	Body map[string]interface{}
+	MessageID string                 `json:"messageId"`
+	Path      string                 `json:"path"`
+	Body      map[string]interface{} `json:"body"`
 }
 
 type ClientStats struct {
@@ -37,6 +38,7 @@ type ClientStats struct {
 	Queued     int   `json:"queued"`
 	Dropped    int64 `json:"dropped"`
 	Seq        int64 `json:"seq"`
+	OutboxPath string `json:"outboxPath,omitempty"`
 }
 
 type Client struct {
@@ -48,6 +50,8 @@ type Client struct {
 	registerIntervalSec time.Duration
 	seq                 int64
 	queue               []OutboundMessage
+	outboxPath          string
+	outboxErr           error
 	dropped             int64
 	registered          bool
 	stopped             bool
@@ -77,6 +81,7 @@ type Config struct {
 	MQTTClientID        string
 	MQTTUsername        string
 	MQTTPassword        string
+	OutboxPath          string
 }
 
 func generateUUID() string {
@@ -97,7 +102,13 @@ func NewClient(cfg Config) *Client {
 		interval = 30 * time.Second
 	}
 
+	state, outboxErr := loadOutbox(cfg.OutboxPath)
 	return &Client{
+		outboxPath:          cfg.OutboxPath,
+		outboxErr:           outboxErr,
+		seq:                 state.Seq,
+		queue:               state.Queue,
+		dropped:             state.Dropped,
 		gatewayURL:          strings.TrimRight(cfg.GatewayURL, "/"),
 		transport:           transport,
 		mqttURL:             cfg.MQTTURL,
@@ -108,7 +119,6 @@ func NewClient(cfg Config) *Client {
 		endpoint:            cfg.Endpoint,
 		token:               cfg.Token,
 		registerIntervalSec: interval,
-		queue:               make([]OutboundMessage, 0, MaxQueue),
 		httpClient: &http.Client{
 			Timeout: PostTimeout,
 		},
@@ -118,6 +128,10 @@ func NewClient(cfg Config) *Client {
 }
 
 func (c *Client) Start() {
+	if c.outboxErr != nil {
+		log.Printf("cannot start gateway client: %v", c.outboxErr)
+		return
+	}
 	if c.transport == "mqtt" {
 		go c.startMQTT()
 	}
@@ -188,17 +202,31 @@ func (c *Client) enqueue(path string, payload map[string]interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.seq++
+	nextSeq := c.seq + 1
+	messageID := generateUUID()
+	payload["messageId"] = messageID
 	payload["deviceId"] = c.dev.DeviceID
 	payload["bootId"] = c.dev.BootID
-	payload["seq"] = c.seq
+	payload["seq"] = nextSeq
 	payload["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
 
-	c.queue = append(c.queue, OutboundMessage{Path: path, Body: payload})
-	for len(c.queue) > MaxQueue {
-		c.queue = c.queue[1:]
+	if len(c.queue) >= MaxQueue {
 		c.dropped++
+		log.Printf("outbox full for device %s; rejected message %s", c.dev.DeviceID, messageID)
+		return
 	}
+	nextQueue := append(append([]OutboundMessage(nil), c.queue...), OutboundMessage{MessageID: messageID, Path: path, Body: payload})
+	if err := c.persistOutboxLocked(nextSeq, nextQueue, c.dropped); err != nil {
+		c.dropped++
+		log.Printf("failed to persist outbound message %s: %v", messageID, err)
+		return
+	}
+	c.seq = nextSeq
+	c.queue = nextQueue
+}
+
+func (c *Client) persistOutboxLocked(seq int64, queue []OutboundMessage, dropped int64) error {
+	return saveOutbox(c.outboxPath, outboxState{Version: 1, Seq: seq, Dropped: dropped, Queue: queue})
 }
 
 func (c *Client) post(ctx context.Context, path string, body interface{}) (int, error) {
@@ -357,7 +385,14 @@ func (c *Client) doFlush() {
 
 		if statusCode >= 200 && statusCode < 300 {
 			if len(c.queue) > 0 {
-				c.queue = c.queue[1:]
+				nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
+				if err := c.persistOutboxLocked(c.seq, nextQueue, c.dropped); err != nil {
+					c.flushFailures++
+					log.Printf("failed to persist outbox acknowledgement: %v", err)
+					c.mu.Unlock()
+					return
+				}
+				c.queue = nextQueue
 			}
 			c.flushFailures = 0
 			c.mu.Unlock()
@@ -375,7 +410,13 @@ func (c *Client) doFlush() {
 		// Any other 4xx: drop message
 		log.Printf(`{"level":"warn","msg":"gateway refused a message, dropping it","status":%d}`, statusCode)
 		if len(c.queue) > 0 {
-			c.queue = c.queue[1:]
+			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
+			if err := c.persistOutboxLocked(c.seq, nextQueue, c.dropped); err != nil {
+				log.Printf("failed to persist rejected-message removal: %v", err)
+				c.mu.Unlock()
+				return
+			}
+			c.queue = nextQueue
 		}
 		c.mu.Unlock()
 	}
@@ -389,6 +430,7 @@ func (c *Client) Stats() ClientStats {
 		Queued:     len(c.queue),
 		Dropped:    c.dropped,
 		Seq:        c.seq,
+		OutboxPath: c.outboxPath,
 	}
 }
 
