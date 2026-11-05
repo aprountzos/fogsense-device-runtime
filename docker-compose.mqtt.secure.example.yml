@@ -11,13 +11,14 @@ services:
       - ./examples/mosquitto-secure.conf:/mosquitto/config/mosquitto-secure.conf:ro
       - ./secrets/mosquitto/passwd:/mosquitto/config/passwd:ro
       - ./secrets/mosquitto/acl:/mosquitto/config/acl:ro
+      - ./secrets/mosquitto/certs:/mosquitto/certs:ro
       - ./secrets/mosquitto/certs:/mosquitto/config/certs:ro
       - mqtt-secure-data:/mosquitto/data
 
   mqtt-gateway:
     build: .
     entrypoint: ["fogsense-mock-mqtt-gateway"]
-    command: ["--broker-url", "mqtts://mqtt-broker:8883", "--username", "${MQTT_GATEWAY_USERNAME:?set MQTT_GATEWAY_USERNAME}", "--password", "${MQTT_GATEWAY_PASSWORD:?set MQTT_GATEWAY_PASSWORD}"]
+    command: ["--broker-url", "mqtts://mqtt-broker:8883", "--username", "fogsense-mock-gateway", "--password", "${MQTT_GATEWAY_PASSWORD:?set MQTT_GATEWAY_PASSWORD}", "--ca-file", "/mosquitto/certs/ca.crt"]
     depends_on: [mqtt-broker]
     healthcheck:
       disable: true
@@ -29,7 +30,7 @@ services:
       DEVICE_ID: mqtt-light-1
       GATEWAY_TRANSPORT: mqtt
       MQTT_BROKER_URL: mqtts://mqtt-broker:8883
-      MQTT_USERNAME: ${MQTT_LIGHT_USERNAME:?set MQTT_LIGHT_USERNAME}
+      MQTT_USERNAME: mqtt-light-1
       MQTT_PASSWORD: ${MQTT_LIGHT_PASSWORD:?set MQTT_LIGHT_PASSWORD}
       DEVICE_TOKEN: ${DEVICE_TOKEN:-}
       ADVERTISE_URL: http://mqtt-light:8080
@@ -46,7 +47,7 @@ services:
       DEVICE_ID: mqtt-sensor-1
       GATEWAY_TRANSPORT: mqtt
       MQTT_BROKER_URL: mqtts://mqtt-broker:8883
-      MQTT_USERNAME: ${MQTT_SENSOR_USERNAME:?set MQTT_SENSOR_USERNAME}
+      MQTT_USERNAME: mqtt-sensor-1
       MQTT_PASSWORD: ${MQTT_SENSOR_PASSWORD:?set MQTT_SENSOR_PASSWORD}
       ADVERTISE_URL: http://mqtt-sensor:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
