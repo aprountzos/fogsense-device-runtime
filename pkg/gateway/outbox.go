@@ -42,6 +42,10 @@ func loadOutbox(path string) (outboxState, error) {
 		if msg.MessageID == "" || msg.Path == "" || msg.Body == nil {
 			return state, fmt.Errorf("outbox message %d is missing messageId, path or body", i)
 		}
+		bodyMessageID, ok := msg.Body["messageId"].(string)
+		if !ok || bodyMessageID != msg.MessageID {
+			return state, fmt.Errorf("outbox message %d has inconsistent messageId", i)
+		}
 	}
 	return state, nil
 }
