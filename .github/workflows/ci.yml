@@ -128,6 +128,51 @@ jobs:
           echo "$logs" | grep -q "/commands/ack"
           echo "$logs" | grep -q "/delivery/ack"
 
+      - name: Verify MQTT gateway deduplication survives restart
+        run: |
+          payload='{"deviceId":"mqtt-light-1","bootId":"ci-boot","messageId":"ci-gateway-restart-1","seq":9001,"ts":"2026-11-06T00:00:00Z","readings":[{"metric":"temperature","value":21.5,"ts":"2026-11-06T00:00:00Z"}]}'
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \\
+            mosquitto_pub -h localhost -q 1 \\
+            -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
+
+          accepted=0
+          for attempt in $(seq 1 20); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-gateway)"
+            if echo "$logs" | grep -q 'ci-gateway-restart-1'; then
+              accepted=1
+              break
+            fi
+            sleep 1
+          done
+          test "$accepted" -eq 1
+
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-gateway
+          ready=0
+          for attempt in $(seq 1 30); do
+            if docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-gateway wget -qO- http://127.0.0.1:8081/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \\
+            mosquitto_pub -h localhost -q 1 \\
+            -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
+
+          duplicate=0
+          for attempt in $(seq 1 20); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs --since=1m mqtt-gateway)"
+            if echo "$logs" | grep -q 'duplicate MQTT message ci-gateway-restart-1'; then
+              duplicate=1
+              break
+            fi
+            sleep 1
+          done
+          echo "$logs"
+          test "$duplicate" -eq 1
+
       - name: Verify MQTT recovery after broker restart
         run: |
           docker compose -f docker-compose.mqtt.example.yml restart mqtt-broker
