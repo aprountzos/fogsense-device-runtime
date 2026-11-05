@@ -118,7 +118,7 @@ func main() {
 		if strings.HasPrefix(mqttBrokerURL, "mqtts://") && mqttUsername == "" && mqttClientCertFile == "" {
 			fatal("MQTT over TLS requires per-device username/password or a client certificate", nil)
 		}
-		if strings.HasPrefix(mqttBrokerURL, "mqtt://") && (mqttUsername != "" || mqttPassword != "") {
+		if !strings.HasPrefix(mqttBrokerURL, "mqtts://") && (mqttUsername != "" || mqttPassword != "") {
 			logJSON("warn", "MQTT credentials are being sent without TLS", map[string]interface{}{"broker": mqttBrokerURL})
 		}
 		if err := gateway.ValidateMQTTTLSConfig(mqttCAFile, mqttClientCertFile, mqttClientKeyFile); err != nil {
