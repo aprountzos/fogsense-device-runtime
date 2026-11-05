@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"log"
 	"encoding/json"
 	"fmt"
 	"net/url"
