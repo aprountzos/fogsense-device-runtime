@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"fogsense-device-runtime/pkg/device"
+	"fogsense-device-runtime/pkg/spec"
 )
 
 func TestMQTTTopic(t *testing.T) {
@@ -66,7 +67,7 @@ func TestMQTTRegistrationAckRequiresMatchingDeviceBoot(t *testing.T) {
 }
 
 func TestMQTTCommandAcknowledgementIsQueued(t *testing.T) {
-	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current", Spec: &spec.DeviceSpec{}}
 	client := NewClient(Config{Device: dev, Transport: "mqtt"})
 
 	client.handleMQTTCommand([]byte(`{"commandId":"cmd-1","name":"TURN_ON"}`))
@@ -89,5 +90,19 @@ func TestMQTTCommandAcknowledgementIsQueued(t *testing.T) {
 	}
 	if got := msg.Body["seq"]; got != int64(1) {
 		t.Fatalf("seq = %v, want 1", got)
+	}
+}
+
+func TestMQTTHeartbeatRequiresFreshRegistrationAck(t *testing.T) {
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	client := NewClient(Config{Device: dev, Transport: "mqtt"})
+	client.registered = true
+
+	// No active MQTT connection: registration will fail, but must first clear
+	// the previous registration state so queued messages cannot flush.
+	client.doRegister()
+
+	if client.IsRegistered() {
+		t.Fatal("client must wait for a fresh application acknowledgement")
 	}
 }
