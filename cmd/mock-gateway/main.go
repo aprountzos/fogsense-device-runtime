@@ -948,6 +948,9 @@ func main() {
 		log.Fatalf("load gateway deduplication store: %v", err)
 	}
 	seenMessages = loadedMessages
+	if err := initializeSeenMessages(dedupeFile, seenMessages); err != nil {
+		log.Fatalf("initialize gateway deduplication store: %v", err)
+	}
 
 	port := flag.Int("port", 8081, "listen port")
 	flag.StringVar(&deviceToken, "device-token", "", "require/expect this X-Device-Token")
