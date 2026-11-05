@@ -30,16 +30,16 @@ The documentation currently describes the development version. We should create 
 For each release:
 
 1. Make sure the release candidate has passed the Go, Docker and documentation CI jobs.
-2. Create a Git tag such as v0.1.0 on the release commit.
-3. Create a GitHub Release with release notes and migration guidance.
-4. From the docs/ directory, create the matching Docusaurus docs snapshot:
+2. From the docs/ directory, create the matching Docusaurus docs snapshot:
 
    ```bash
    npm run docusaurus -- docs:version 0.1.0
    ```
 
-5. Commit the generated versioned_docs/, versioned_sidebars/ and versions.json files.
-6. Add a docsVersionDropdown item to the Docusaurus navbar so readers can switch between the current development docs and released documentation.
+3. Commit the generated versioned_docs/, versioned_sidebars/ and versions.json files.
+4. Add a docsVersionDropdown item to the Docusaurus navbar so readers can switch between the current development docs and released documentation.
+5. Create a Git tag such as v0.1.0 on that final release commit.
+6. Create a GitHub Release for the tag with release notes and migration guidance.
 
 The versioned documentation must be generated from the same commit/tag as the runtime release. Do not edit a released documentation snapshot to describe features that shipped later.
 
