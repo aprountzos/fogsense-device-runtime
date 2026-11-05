@@ -24,8 +24,8 @@ func (c *Client) startMQTT() {
 	} else if strings.HasPrefix(brokerURL, "tcp://") {
 		brokerURL = "mqtt://" + strings.TrimPrefix(brokerURL, "tcp://")
 	}
-	if u, err := url.Parse(brokerURL); err != nil || (u.Scheme != "mqtt" && u.Scheme != "tls" && u.Scheme != "ws" && u.Scheme != "wss") || u.Host == "" {
-		log.Printf("invalid MQTT broker URL %q: expected mqtt:// or mqtts:// (optionally ws:// or wss://)", c.mqttURL)
+	if u, err := url.Parse(brokerURL); err != nil || (u.Scheme != "mqtt" && u.Scheme != "tls") || u.Host == "" {
+		log.Printf("invalid MQTT broker URL %q: expected mqtt:// or mqtts://", c.mqttURL)
 		return
 	}
 	u, _ := url.Parse(brokerURL)
@@ -56,6 +56,10 @@ func (c *Client) startMQTT() {
 			},
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
+			c.mu.Lock()
+			c.mqttReady = false
+			c.registered = false
+			c.mu.Unlock()
 			commandsTopic := fmt.Sprintf("%s/%s/commands", mqttTopicPrefix, c.dev.DeviceID)
 			registrationAckTopic := fmt.Sprintf("%s/%s/register/ack", mqttTopicPrefix, c.dev.DeviceID)
 			subCtx, subCancel := context.WithTimeout(context.Background(), 5*time.Second)
