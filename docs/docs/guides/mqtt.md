@@ -122,7 +122,7 @@ openssl req -newkey rsa:2048 -nodes -keyout secrets/mosquitto/certs/server.key -
 @"
 subjectAltName=DNS:mqtt-broker
 extendedKeyUsage=serverAuth
-"@ | Set-Content secrets/mosquitto/certs/server.ext
+"@ | Set-Content -Encoding ascii secrets/mosquitto/certs/server.ext
 openssl x509 -req -in secrets/mosquitto/certs/server.csr -CA secrets/mosquitto/certs/ca.crt -CAkey secrets/mosquitto/certs/ca.key -CAcreateserial -out secrets/mosquitto/certs/server.crt -days 825 -sha256 -extfile secrets/mosquitto/certs/server.ext
 
 # Create the password file interactively using mosquitto_passwd.
