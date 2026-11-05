@@ -209,3 +209,21 @@ func TestClientInitializationFailsOnCorruptOutbox(t *testing.T) {
 		t.Fatal("outbox health must be false when recovery fails")
 	}
 }
+
+func TestClientInitializationCreatesOutboxFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "outbox.json")
+	client := NewClient(Config{
+		Device:    &device.Device{DeviceID: "light-1", BootID: "boot-one"},
+		OutboxPath: path,
+	})
+	if err := client.InitializationError(); err != nil {
+		t.Fatalf("initialize outbox: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("outbox file was not created: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("outbox path is a directory, want file")
+	}
+}
