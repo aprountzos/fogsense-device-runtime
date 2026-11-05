@@ -329,13 +329,6 @@ func handler() http.Handler {
 				devices[devID] = rec
 				logMsg("REGISTER %s (%s v%g) at %s [new boot]", devID, devType, version, endpoint)
 			}
-			seenMessages[dedupeKey] = true
-			if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
-				delete(seenMessages, dedupeKey)
-				mu.Unlock()
-				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
-				return
-			}
 			mu.Unlock()
 
 			sendJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -453,6 +446,13 @@ func handler() http.Handler {
 					stateBytes, _ := json.Marshal(body["state"])
 					logMsg("EVENT %s seq=%d STATE_CHANGED %s", devID, seq, string(stateBytes))
 				}
+			}
+			seenMessages[dedupeKey] = true
+			if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
+				delete(seenMessages, dedupeKey)
+				mu.Unlock()
+				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+				return
 			}
 			mu.Unlock()
 
