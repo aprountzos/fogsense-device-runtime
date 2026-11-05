@@ -112,6 +112,15 @@ func main() {
 		if (mqttUsername == "") != (mqttPassword == "") {
 			fatal("MQTT_USERNAME and MQTT_PASSWORD must either both be set or both be empty", nil)
 		}
+		if (mqttClientCertFile == "") != (mqttClientKeyFile == "") {
+			fatal("MQTT_CLIENT_CERT_FILE and MQTT_CLIENT_KEY_FILE must either both be set or both be empty", nil)
+		}
+		if strings.HasPrefix(mqttBrokerURL, "mqtts://") && mqttUsername == "" && mqttClientCertFile == "" {
+			fatal("MQTT over TLS requires per-device username/password or a client certificate", nil)
+		}
+		if strings.HasPrefix(mqttBrokerURL, "mqtt://") && (mqttUsername != "" || mqttPassword != "") {
+			logJSON("warn", "MQTT credentials are being sent without TLS", map[string]interface{}{"broker": mqttBrokerURL})
+		}
 		if mqttClientID == "" {
 			mqttClientID = "fogsense-" + deviceID
 		}
