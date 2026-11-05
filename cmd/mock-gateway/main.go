@@ -389,7 +389,6 @@ func handler() http.Handler {
 				if rec, exists := devices[devID]; exists {
 					rec.Duplicates++
 				}
-				dedupeHealthy.Store(true)
 				mu.Unlock()
 				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
 				return
@@ -465,6 +464,7 @@ func handler() http.Handler {
 				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
 				return
 			}
+			dedupeHealthy.Store(true)
 			mu.Unlock()
 
 			sendJSON(w, http.StatusOK, map[string]bool{"ok": true})
