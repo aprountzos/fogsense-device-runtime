@@ -52,6 +52,7 @@ const sidebars = {
         'guides/configuration',
         'guides/docker',
         'guides/mock-gateway',
+        'guides/mqtt',
         'guides/testing',
       ],
     },
