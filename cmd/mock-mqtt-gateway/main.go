@@ -129,8 +129,10 @@ func main() {
 	seenMessages, err := loadMQTTSeen(*dedupeFile)
 	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
 	if err := initializeMQTTSeen(*dedupeFile, seenMessages); err != nil { log.Fatalf("initialize MQTT deduplication store: %v", err) }
+	dedupeHealthy.Store(true)
 	var seenMu sync.Mutex
 	var ready atomic.Bool
+	var dedupeHealthy atomic.Bool
 	var subscribing atomic.Bool
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -139,7 +141,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if !ready.Load() {
+		if !ready.Load() || !dedupeHealthy.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = w.Write([]byte(`{"status":"DOWN","reason":"mqtt subscription is not ready"}`))
 			return
@@ -237,6 +239,7 @@ func main() {
 									return true, nil
 								}
 							}
+							dedupeHealthy.Store(true)
 							seenMu.Unlock()
 							if duplicate {
 								log.Printf("duplicate MQTT message %s from %s; acknowledging without reprocessing", messageID, deviceID)
