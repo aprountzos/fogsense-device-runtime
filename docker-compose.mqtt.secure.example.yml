@@ -30,6 +30,7 @@ services:
       DEVICE_ID: mqtt-light-1
       GATEWAY_TRANSPORT: mqtt
       MQTT_BROKER_URL: mqtts://mqtt-broker:8883
+      MQTT_CA_FILE: /mosquitto/certs/ca.crt
       MQTT_USERNAME: mqtt-light-1
       MQTT_PASSWORD: ${MQTT_LIGHT_PASSWORD:?set MQTT_LIGHT_PASSWORD}
       DEVICE_TOKEN: ${DEVICE_TOKEN:-}
@@ -38,6 +39,7 @@ services:
       OUTBOX_PATH: /data/outbox.json
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
+      - ./secrets/mosquitto/certs:/mosquitto/certs:ro
       - mqtt-light-secure-outbox:/data
 
   mqtt-sensor:
@@ -54,6 +56,7 @@ services:
       OUTBOX_PATH: /data/outbox.json
     volumes:
       - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
+      - ./secrets/mosquitto/certs:/mosquitto/certs:ro
       - mqtt-sensor-secure-outbox:/data
 
 volumes:
