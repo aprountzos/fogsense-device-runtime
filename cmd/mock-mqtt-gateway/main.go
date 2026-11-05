@@ -233,13 +233,14 @@ func main() {
 							if !duplicate {
 								seenMessages[dedupeKey] = true
 								if err := saveMQTTSeen(*dedupeFile, seenMessages); err != nil {
+									dedupeHealthy.Store(false)
 									delete(seenMessages, dedupeKey)
 									seenMu.Unlock()
 									log.Printf("cannot persist message acceptance for %s: %v", messageID, err)
 									return true, nil
 								}
+								dedupeHealthy.Store(true)
 							}
-							dedupeHealthy.Store(true)
 							seenMu.Unlock()
 							if duplicate {
 								log.Printf("duplicate MQTT message %s from %s; acknowledging without reprocessing", messageID, deviceID)
