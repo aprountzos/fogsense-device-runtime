@@ -18,6 +18,10 @@ services:
     build: .
     entrypoint: ["fogsense-mock-gateway"]
     command: ["--port", "8081", "--device-token", "demo-token"]
+    environment:
+      GATEWAY_DEDUPE_FILE: /data/gateway-dedupe.json
+    volumes:
+      - mock-gateway-data:/data
     ports:
       - "8081:8081"
 
@@ -56,3 +60,6 @@ services:
 volumes:
   light-1-outbox:
   sensor-1-outbox:
+
+volumes:
+  mock-gateway-data:
