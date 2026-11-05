@@ -17,6 +17,12 @@ import (
 	"github.com/eclipse/paho.golang/paho"
 )
 
+func topicLeaf(topic string) string {
+	parts := strings.Split(strings.Trim(topic, "/"), "/")
+	if len(parts) == 0 { return "" }
+	return parts[len(parts)-1]
+}
+
 func main() {
 	brokerURL := flag.String("broker-url", "mqtt://127.0.0.1:1883", "MQTT 5 broker URL (mqtt:// or mqtts://)")
 	clientID := flag.String("client-id", "fogsense-mock-gateway", "MQTT client identifier")
@@ -75,6 +81,21 @@ func main() {
 							QoS: 1, Topic: ackTopic, Payload: ack,
 						}); err != nil {
 							log.Printf("failed to acknowledge registration on %s: %v", ackTopic, err)
+						}
+					} else if messageID, ok := payload["messageId"].(string); ok && messageID != "" {
+						deviceID, _ := payload["deviceId"].(string)
+						ack, _ := json.Marshal(map[string]interface{}{
+							"deviceId": deviceID,
+							"messageId": messageID,
+							"accepted": deviceID != "",
+						})
+						ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+						defer cancel()
+						ackTopic := strings.TrimSuffix(received.Packet.Topic, "/"+topicLeaf(received.Packet.Topic)) + "/delivery/ack"
+						if _, err := received.Client.Publish(ackCtx, &paho.Publish{
+							QoS: 1, Topic: ackTopic, Payload: ack,
+						}); err != nil {
+							log.Printf("failed to acknowledge delivery on %s: %v", ackTopic, err)
 						}
 					}
 					return true, nil
