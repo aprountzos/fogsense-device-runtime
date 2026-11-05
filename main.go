@@ -97,8 +97,8 @@ func main() {
 			fatal("GATEWAY_URL is required for HTTP transport and must start with http:// or https://", nil)
 		}
 	} else {
-		if mqttBrokerURL == "" {
-			fatal("MQTT_BROKER_URL is required when GATEWAY_TRANSPORT=mqtt", nil)
+		if !strings.HasPrefix(mqttBrokerURL, "mqtt://") && !strings.HasPrefix(mqttBrokerURL, "mqtts://") && !strings.HasPrefix(mqttBrokerURL, "tcp://") {
+			fatal("MQTT_BROKER_URL is required and must start with mqtt:// or mqtts://", nil)
 		}
 		if (mqttUsername == "") != (mqttPassword == "") {
 			fatal("MQTT_USERNAME and MQTT_PASSWORD must either both be set or both be empty", nil)
