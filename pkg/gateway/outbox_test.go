@@ -173,3 +173,22 @@ func TestPermanentHTTPRejectionIsCountedAndRemoved(t *testing.T) {
 		t.Fatalf("persisted outbox = %+v, want dropped=1 and empty queue", state)
 	}
 }
+
+func TestOutboxRejectsNewestMessageWhenFull(t *testing.T) {
+	client := NewClient(Config{Device: &device.Device{DeviceID: "light-1", BootID: "boot-one"}})
+	for i := 0; i < MaxQueue+1; i++ {
+		client.enqueue("/devices/light-1/events", map[string]interface{}{"index": i})
+	}
+	if len(client.queue) != MaxQueue {
+		t.Fatalf("queue length = %d, want %d", len(client.queue), MaxQueue)
+	}
+	if client.dropped != 1 {
+		t.Fatalf("dropped = %d, want 1", client.dropped)
+	}
+	if client.seq != MaxQueue {
+		t.Fatalf("sequence = %d, want %d because rejected messages are not assigned a sequence", client.seq, MaxQueue)
+	}
+	if got := client.queue[0].Body["seq"]; got != int64(1) {
+		t.Fatalf("oldest queued sequence = %v, want 1", got)
+	}
+}
