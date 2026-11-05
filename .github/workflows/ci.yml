@@ -14,6 +14,7 @@ on:
       - 'Dockerfile'
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
+      - 'docker-compose.mqtt.example.yml'
       - 'docs/**'
       - '.github/workflows/ci.yml'
   pull_request:
@@ -28,6 +29,7 @@ on:
       - 'examples/**'
       - 'Dockerfile'
       - 'docker-compose.example.yml'
+      - 'docker-compose.mqtt.example.yml'
       - 'docs/**'
       - '.github/workflows/ci.yml'
 
