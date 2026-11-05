@@ -157,12 +157,12 @@ Use the registry that matches your environment and access-control model.
 | `contract/device-spec.schema.yaml` | Schema for the device spec (structure + semantic rules in `description`) |
 | `contract/device-api.openapi.yaml` | API exposed by each device (`/info`, `/state`, `/commands`, `/health`) |
 | `contract/gateway-api.openapi.yaml` | HTTP gateway API contract |
-| `contract/mqtt-gateway.md` | MQTT 5 topics, registration acknowledgement, QoS, and security contract |
+| `contract/mqtt-gateway.md` | MQTT 5 topics, registration acknowledgement, QoS, and security contract |\n| `contract/delivery-guarantees.md` | Shared HTTP/MQTT delivery, persistence, deduplication, and security roadmap |
 | `examples/*.yaml` | Sample specs (smart light, temperature sensor, thermostat, door lock) |
 | `cmd/mock-gateway/` | HTTP mock gateway and conformance runner |
 | `cmd/mock-mqtt-gateway/` | MQTT mock gateway subscriber for local testing |
 | `docker-compose.mqtt.example.yml` | Local Mosquitto + MQTT device playground |
-| `docker-compose.mqtt.secure.example.yml` | TLS/authenticated MQTT playground |
+| `docker-compose.mqtt.secure.example.yml` | TLS/authenticated MQTT playground |\n| `examples/mosquitto-secure.conf`, `examples/mosquitto-acl.example` | TLS broker configuration and per-device topic ACL template |
 | `docs/` | Docusaurus documentation website |
 | `MAINTAINERS.md` | Publishing, release, and maintainer notes |
 
