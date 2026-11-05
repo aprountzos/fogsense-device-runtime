@@ -15,6 +15,7 @@ on:
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
       - 'docker-compose.mqtt.secure.example.yml'
+      - 'docker-compose.mqtt.secure.example.yml'
       - 'docs/**'
       - '.github/workflows/**'
   pull_request:
@@ -30,6 +31,7 @@ on:
       - 'Dockerfile'
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
+      - 'docker-compose.mqtt.secure.example.yml'
       - 'docs/**'
       - '.github/workflows/**'
 
@@ -99,6 +101,7 @@ jobs:
           logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
           echo "$logs"
           echo "$logs" | grep -q "/commands/ack"
+          echo "$logs" | grep -q "/delivery/ack"
 
       - name: Verify MQTT recovery after broker restart
         run: |
