@@ -121,6 +121,31 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/commands `
   -Body '{"commandId":"light-1-on","name":"TURN_ON"}'
 ```
 
+## Alternative: Start with MQTT 5
+
+If you want to use MQTT instead of the HTTP gateway, start the repository's local broker + mock gateway + device playground:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml up --build
+```
+
+This starts Mosquitto, the MQTT mock gateway and a smart-light runtime configured with `GATEWAY_TRANSPORT=mqtt`. Follow the output with:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml logs -f mqtt-light mqtt-gateway
+```
+
+Send a command through the broker:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
+  mosquitto_pub -h localhost \
+  -t fogsense/v1/devices/mqtt-light-1/commands \
+  -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
+```
+
+The local MQTT broker intentionally allows anonymous access; use TLS, credentials and per-device ACLs for real deployments. Read the [MQTT 5 Transport guide](./guides/mqtt.md) for the full topic and security model.
+
 ## Step 3: Interact with the Device
 
 Open a **third terminal** and use `curl` to interact:
