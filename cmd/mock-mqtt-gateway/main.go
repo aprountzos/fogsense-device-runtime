@@ -278,10 +278,10 @@ func main() {
 			},
 		},
 		OnConnectionUp: func(cm *autopaho.ConnectionManager, _ *paho.Connack) {
-			ready.Store(false)
 			if !subscribing.CompareAndSwap(false, true) {
 				return
 			}
+			ready.Store(false)
 			topic := strings.TrimRight(*prefix, "/") + "/#"
 			go func() {
 				defer subscribing.Store(false)
