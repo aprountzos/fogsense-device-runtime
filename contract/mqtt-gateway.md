@@ -22,7 +22,8 @@ The topic prefix is `fogsense/v1/devices`.
 | `fogsense/v1/devices/{deviceId}/telemetry` | Device | Telemetry batches |
 | `fogsense/v1/devices/{deviceId}/events` | Device | Device events |
 | `fogsense/v1/devices/{deviceId}/commands` | Gateway | Commands for one device |
-| `fogsense/v1/devices/{deviceId}/commands/ack` | Device | Command execution result |\n| `fogsense/v1/devices/{deviceId}/delivery/ack` | Gateway | Application-level acceptance of an outbound message |
+| `fogsense/v1/devices/{deviceId}/commands/ack` | Device | Command execution result |
+| `fogsense/v1/devices/{deviceId}/delivery/ack` | Gateway | Application-level acceptance of an outbound message |
 
 ## Registration
 
@@ -46,8 +47,9 @@ Telemetry and event payloads retain the existing HTTP envelope:
 
 - `deviceId`: stable device identifier
 - `bootId`: identifier generated for this runtime boot
-- `seq`: monotonically increasing sequence number for this boot
-- `ts`: UTC RFC3339Nano timestamp\n- `messageId`: stable UUID generated once when enqueued and preserved across retries and process restarts
+- `seq`: monotonically increasing sequence number persisted across restarts
+- `ts`: UTC RFC3339Nano timestamp
+- `messageId`: stable UUID generated once when enqueued and preserved across retries and process restarts
 
 QoS 1 is at-least-once broker delivery, not gateway application acceptance. The device retains each message in its persistent outbox until it receives a matching `delivery/ack` with `accepted: true`. The gateway must tolerate duplicates and deduplicate using `(deviceId, messageId)`. `bootId` and `seq` remain diagnostic and ordering fields; the device rebinds recovered messages to its current boot while preserving their original messageId and sequence.
 
@@ -74,4 +76,4 @@ Use broker-side authentication and topic ACLs. The secure local profile is provi
 - Deny wildcard subscriptions and access to other device IDs.
 - Require TLS (`mqtts://`) outside isolated local development.
 
-The local `docker-compose.mqtt.example.yml` playground deliberately enables anonymous broker access and is not a production security configuration. The default outbox path is `data/outbox-<DEVICE_ID>.json`; set `OUTBOX_PATH` to choose another path. The outbox is atomically replaced and uses restrictive file permissions. Persist its containing directory/volume. The secure compose profile mounts named volumes for this purpose. HTTP uses `GATEWAY_TOKEN` (sent as `X-Device-Token`) and `DEVICE_TOKEN` for the local device API; these are separate from MQTT broker credentials.
+The local `docker-compose.mqtt.example.yml` playground deliberately enables anonymous broker access and is not a production security configuration. The outbox defaults to `data/outbox-<DEVICE_ID>.json` and can be overridden with `OUTBOX_PATH`. The default outbox path is `data/outbox-<DEVICE_ID>.json`; set `OUTBOX_PATH` to choose another path. The outbox is atomically replaced and uses restrictive file permissions. Persist its containing directory/volume. The secure compose profile mounts named volumes for this purpose. HTTP uses `GATEWAY_TOKEN` (sent as `X-Device-Token`) and `DEVICE_TOKEN` for the local device API; these are separate from MQTT broker credentials.
