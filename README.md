@@ -100,9 +100,19 @@ The device subscribes to its own command topic and publishes command acknowledge
 | Device → gateway | `fogsense/v1/devices/{deviceId}/telemetry` |
 | Device → gateway | `fogsense/v1/devices/{deviceId}/events` |
 | Gateway → device | `fogsense/v1/devices/{deviceId}/commands` |
+| Gateway → device | `fogsense/v1/devices/{deviceId}/register/ack` |
 | Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` |
 
-Messages retain the device envelope (`deviceId`, `bootId`, `seq`, and `ts`). The runtime publishes with QoS 1, which is at-least-once delivery: a gateway must deduplicate messages using the device/boot/sequence identity. MQTT command payloads use the same JSON command shape as `POST /commands`.
+Messages retain the device envelope (`deviceId`, `bootId`, `seq`, and `ts`). The runtime publishes with QoS 1, which is at-least-once delivery: a gateway must deduplicate messages using the device/boot/sequence identity. MQTT registration is completed only after the gateway publishes an application-level acknowledgement containing the matching `deviceId`, `bootId`, and `accepted: true`. The runtime then begins flushing telemetry and events. MQTT command payloads use the same JSON command shape as `POST /commands`.
+
+Send a command to the demo light from another terminal:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
+  mosquitto_pub -h localhost \
+  -t fogsense/v1/devices/mqtt-light-1/commands \
+  -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
+```
 
 The playground broker allows anonymous access for local development only. For a real deployment, use an MQTT broker with TLS and per-device credentials/ACLs. A device should be allowed to publish only to its own registration, telemetry, events, and acknowledgement topics, and subscribe only to its own command topic.
 
