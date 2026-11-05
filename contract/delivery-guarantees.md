@@ -59,35 +59,46 @@ Production deployments must not rely on anonymous access or shared demo credenti
 
 The local device HTTP API is a separate security boundary from the device-to-gateway transport. Its token, instructor control token, HTTP gateway credential, and MQTT broker credential must remain distinct.
 
-## 5. Implementation phases
+## 5. Implementation phases and progress
 
-1. **Durable outbox shared by HTTP and MQTT**
-   - Add a disk-backed outbox with atomic updates and recovery.
-   - Add stable message IDs and persist sequence/outbox metadata.
-   - Define bounded capacity, overflow behavior, retry classification, and permanent rejection handling.
-   - Keep the existing in-memory mode available for ephemeral demos if explicitly selected.
-2. **Gateway acceptance and deduplication contract**
-   - Add application-level acknowledgements for HTTP and MQTT data messages.
-   - Deduplicate by (deviceId, messageId) before side effects.
-   - Persist gateway acceptance/deduplication state in the reference gateway used for integration tests.
-3. **Production security profiles**
-   - Add a secure Mosquitto example with TLS, per-device credentials, and topic ACLs.
-   - Make insecure local-demo settings explicit.
-   - Add tests for missing credentials, mismatched credentials, unauthorized topic access, and TLS configuration.
-   - Document HTTPS deployment for the HTTP path and keep local API/control credentials separate.
-4. **Operational visibility and lifecycle**
-   - Expose outbox and transport health through the device health/control diagnostics.
-   - Provide a meaningful health signal for the MQTT mock gateway rather than applying the device HTTP health check to it.
-   - Cover shutdown, reconnect, broker outage, process restart, disk-full, and queue-capacity behavior.
-5. **Conformance, documentation, and local test suite**
-   - Run the same logical delivery scenarios against HTTP and MQTT.
-   - Document expected results and failure semantics.
-   - Provide a PowerShell-first local test runner and manual fault-injection commands.
+1. **Durable outbox shared by HTTP and MQTT — implemented, with operational hardening remaining**
+   - A disk-backed JSON outbox is shared by both transports.
+   - Enqueue, stable message IDs, sequence state, and acknowledgements are atomically persisted.
+   - The default path is `data/outbox-<DEVICE_ID>.json`; override it with `OUTBOX_PATH`.
+   - The outbox is bounded to 500 messages. When full, the newest message is rejected and counted; older queued messages are not evicted.
+   - Corrupt or unsupported outbox state prevents runtime startup rather than silently starting with an empty queue.
+   - The container examples mount persistent volumes for device outboxes.
+   - Remaining hardening: cross-process file locking, configurable capacity/retention, disk-full fault tests, and stronger filesystem portability validation.
 
-## 6. Current implementation status at the time this contract was added
+2. **Gateway acceptance and deduplication — implemented in the reference gateways; production transaction boundary remains**
+   - HTTP 2xx is treated as application acceptance. The reference HTTP gateway persists accepted `(deviceId, messageId)` keys before returning success.
+   - MQTT QoS 1 PUBACK is not treated as application acceptance. The device waits for `fogsense/v1/devices/{deviceId}/delivery/ack` with a matching `messageId` and `accepted: true`.
+   - The reference MQTT gateway persists accepted message IDs before publishing the application acknowledgement.
+   - Both reference gateways deduplicate by `(deviceId, messageId)`.
+   - Production gateways must atomically persist the business message and its deduplication key in one transaction. The mock gateways persist deduplication keys, but their demonstration telemetry/event state is not a transactional production data store.
 
-The current runtime has a shared bounded in-memory outbound queue for HTTP and MQTT. It retries transient failures while the process remains alive. MQTT uses QoS 1, registration application acknowledgements, reconnect/re-subscription, and an application command-ack queue.
+3. **Production security profiles — implemented for MQTT examples; HTTP deployment guidance remains**
+   - MQTT supports system trust or a custom `MQTT_CA_FILE`, per-device username/password, and optional client certificate/key for mutual TLS.
+   - `mqtts://` requires username/password or a client certificate.
+   - Added a TLS Mosquitto configuration, per-device ACL example, and a secure Compose profile.
+   - The anonymous MQTT playground remains explicitly local-development-only.
+   - HTTP uses HTTPS/TLS and its separate gateway token; production deployments must configure HTTPS and unique device credentials.
+   - Remaining: automated broker ACL integration tests, certificate rotation, and an equivalent fully automated HTTPS test profile.
 
-The following are not yet complete: durable outbox recovery across process restarts, stable message IDs across restarts, gateway application acknowledgements for every telemetry/event/command-ack message, durable gateway-side deduplication, and an enforced production MQTT TLS/credential/ACL profile. The local Mosquitto playground deliberately permits anonymous access and disables broker persistence.
+4. **Operational visibility and lifecycle — partially implemented**
+   - The existing control/status response exposes outbox queue depth, dropped count, sequence and path.
+   - Transient HTTP failures (including 408, 429 and 5xx) and MQTT acknowledgement timeouts retain messages for retry. Permanent rejections are counted and removed.
+   - Remaining: oldest-message age, retry counters, last successful delivery, disk-health indicators, and meaningful MQTT gateway health checks.
 
-This status section must be updated as implementation phases are completed.
+5. **Conformance and local test suite — in progress**
+   - Added unit tests for outbox recovery/corruption, stable IDs, MQTT acknowledgement matching, custom CA configuration, and gateway deduplication persistence.
+   - Remaining: end-to-end HTTP/MQTT parity tests, broker/process fault injection, security/ACL integration tests, and the final PowerShell test runner.
+
+## 6. Current implementation boundaries
+
+- Delivery is **at least once**, not exactly once. Consumers must be idempotent.
+- The device outbox is durable only when its file or mounted volume survives container replacement. Deleting a named volume deletes pending messages.
+- One runtime process must own a given device outbox path; do not mount the same file into multiple replicas.
+- The reference gateway deduplication store persists message IDs, but is not a substitute for a production database transaction that stores the actual telemetry/event/command result and its deduplication key together.
+- The local anonymous Mosquitto profile is for development only. Use the secure profile or an appropriately managed broker in production.
+- The local HTTP device API remains a separate security boundary from the gateway transport.
