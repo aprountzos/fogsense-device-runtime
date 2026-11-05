@@ -131,9 +131,7 @@ jobs:
       - name: Verify MQTT gateway deduplication survives restart
         run: |
           payload='{"deviceId":"mqtt-light-1","bootId":"ci-boot","messageId":"ci-gateway-restart-1","seq":9001,"ts":"2026-11-06T00:00:00Z","readings":[{"metric":"temperature","value":21.5,"ts":"2026-11-06T00:00:00Z"}]}'
-          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \\
-            mosquitto_pub -h localhost -q 1 \\
-            -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker mosquitto_pub -h localhost -q 1 -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
 
           accepted=0
           for attempt in $(seq 1 20); do
@@ -157,9 +155,7 @@ jobs:
           done
           test "$ready" -eq 1
 
-          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \\
-            mosquitto_pub -h localhost -q 1 \\
-            -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker mosquitto_pub -h localhost -q 1 -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
 
           duplicate=0
           for attempt in $(seq 1 20); do
