@@ -138,6 +138,10 @@ func main() {
 	}
 
 	deviceToken := os.Getenv("DEVICE_TOKEN")
+	gatewayToken := os.Getenv("GATEWAY_TOKEN")
+	if gatewayToken == "" {
+		gatewayToken = deviceToken // Backward compatibility with the original shared token setting.
+	}
 	controlToken := os.Getenv("CONTROL_TOKEN")
 
 	hostname, _ := os.Hostname()
@@ -173,7 +177,7 @@ func main() {
 		GatewayURL:          gatewayURL,
 		Device:              dev,
 		Endpoint:            advertiseURL,
-		Token:               deviceToken,
+		Token:               gatewayToken,
 		RegisterIntervalSec: registerIntervalSec,
 		Transport:           gatewayTransport,
 		MQTTURL:             mqttBrokerURL,
@@ -229,8 +233,10 @@ func main() {
 			controlState = "enabled"
 		}
 		authState := "none"
-		if deviceToken != "" {
-			authState = "token"
+		if gatewayTransport == "http" && gatewayToken != "" {
+			authState = "http-token"
+		} else if gatewayTransport == "mqtt" && mqttUsername != "" {
+			authState = "mqtt-username-password"
 		}
 
 		logJSON("info", "device runtime started", map[string]interface{}{
