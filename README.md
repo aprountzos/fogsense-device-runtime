@@ -82,6 +82,46 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml \
 go run .
 ```
 
+### MQTT 5 transport
+
+HTTP remains the default gateway transport. Devices can alternatively publish registration, telemetry, and events over MQTT 5 without changing their local HTTP device API.
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml up --build
+```
+
+The local playground starts a Mosquitto broker, a small MQTT mock gateway subscriber, and a YAML-configured smart-light device. The mock gateway prints messages received on the device topics.
+
+The device subscribes to its own command topic and publishes command acknowledgements:
+
+| Direction | Topic |
+| --- | --- |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/register` |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/telemetry` |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/events` |
+| Gateway → device | `fogsense/v1/devices/{deviceId}/commands` |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` |
+
+Messages retain the device envelope (`deviceId`, `bootId`, `seq`, and `ts`). The runtime publishes with QoS 1, which is at-least-once delivery: a gateway must deduplicate messages using the device/boot/sequence identity. MQTT command payloads use the same JSON command shape as `POST /commands`.
+
+The playground broker allows anonymous access for local development only. For a real deployment, use an MQTT broker with TLS and per-device credentials/ACLs. A device should be allowed to publish only to its own registration, telemetry, events, and acknowledgement topics, and subscribe only to its own command topic.
+
+To use a broker with credentials:
+
+```powershell
+$env:DEVICE_ID = "light-1"
+$env:GATEWAY_TRANSPORT = "mqtt"
+$env:MQTT_BROKER_URL = "mqtts://broker.example.com:8883"
+$env:MQTT_CLIENT_ID = "fogsense-light-1"
+$env:MQTT_USERNAME = "light-1"
+$env:MQTT_PASSWORD = "<inject-from-secret-store>"
+$env:DEVICE_TOKEN = "<separate-local-http-api-token>"
+$env:DEVICE_SPEC_FILE = "examples/smart-light.yaml"
+go run .
+```
+
+For HTTP, the existing `DEVICE_TOKEN` continues to be sent to the gateway as `X-Device-Token` and is also used to protect the device's local HTTP API. Use `https://` for encrypted HTTP connections. MQTT broker credentials are separate from the local HTTP API token.
+
 ## Package registry
 
 Published images are available from the following registries:
@@ -263,9 +303,13 @@ docker compose -f docker-compose.example.yml up --build
 | Variable | Required | Description |
 | --- | --- | --- |
 | `DEVICE_ID` | yes | Unique ID, `[A-Za-z0-9_.-]{1,64}` |
-| `GATEWAY_URL` | yes | Base URL of the Fog Gateway, e.g. `http://fog-gateway:8081` |
+| `GATEWAY_TRANSPORT` | no | `http` (default) or `mqtt` |
+| `GATEWAY_URL` | HTTP only | Base URL of the Fog Gateway, e.g. `https://fog-gateway:8081` |
+| `MQTT_BROKER_URL` | MQTT only | Broker URL, e.g. `mqtt://mqtt-broker:1883` or `mqtts://broker.example.com:8883` |
+| `MQTT_CLIENT_ID` | no | MQTT client ID (default `fogsense-<DEVICE_ID>`) |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | no | Optional MQTT CONNECT credentials; set both or neither |
 | `DEVICE_SPEC_B64` / `DEVICE_SPEC` / `DEVICE_SPEC_FILE` | one of three | Device spec as base64 YAML, YAML string, or file path (default `/config/spec.yaml`) |
-| `DEVICE_TOKEN` | no | Shared secret; the device sends it as `X-Device-Token` and requires it from anyone calling its API |
+| `DEVICE_TOKEN` | no | HTTP gateway token (`X-Device-Token`) and local device API token; it is separate from MQTT credentials |
 | `ADVERTISE_URL` | no | URL the gateway uses to reach the device (default `http://<hostname>:<PORT>`) |
 | `PORT` | no | Default `8080` |
 | `REGISTER_INTERVAL_SEC` | no | Heartbeat registration period; default `30` |
