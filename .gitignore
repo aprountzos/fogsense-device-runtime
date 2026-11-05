@@ -26,3 +26,8 @@ fogsense-device-runtime
 
 # Platform MVP
 mvp/
+
+# Persistent local outboxes and gateway state
+/data/
+/data-*/
+secrets/
