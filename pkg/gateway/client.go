@@ -277,12 +277,10 @@ func (c *Client) doRegister() time.Duration {
 	if c.transport == "mqtt" {
 		err = c.publishMQTT(ctx, "/devices/register", body)
 		if err == nil {
-			c.mu.Lock()
-			acknowledged := c.registered
-			c.mu.Unlock()
-			if acknowledged {
-				statusCode = http.StatusAccepted
-			}
+			err = c.waitForMQTTRegistration(ctx)
+		}
+		if err == nil {
+			statusCode = http.StatusAccepted
 		}
 	} else {
 		statusCode, err = c.post(ctx, "/devices/register", body)
