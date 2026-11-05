@@ -93,7 +93,7 @@ jobs:
           ready=0
           for attempt in $(seq 1 30); do
             logs="$(docker compose -f docker-compose.example.yml logs mock-gateway)"
-            if echo "$logs" | grep -q 'REGISTER light-1' && echo "$logs" | grep -q 'TELEMETRY light-1'; then
+            if echo "$logs" | grep -q 'REGISTER light-1' && echo "$logs" | grep -q 'TELEMETRY sensor-1'; then
               ready=1
               break
             fi
