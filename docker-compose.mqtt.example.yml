@@ -22,10 +22,12 @@ services:
     depends_on: [mqtt-broker]
     volumes:
       - mqtt-gateway-data:/data
-    # The MQTT-only gateway does not expose the device runtime's HTTP /health endpoint.
-    # Override the image-level HTTP health check for this service.
     healthcheck:
-      disable: true
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   mqtt-light:
     build: .
