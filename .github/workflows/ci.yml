@@ -87,6 +87,22 @@ jobs:
       - name: Build runtime image
         run: docker build -t fogsense-device-runtime:ci .
 
+      - name: Run HTTP playground integration test
+        run: |
+          docker compose -f docker-compose.example.yml up --build -d
+          ready=0
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.example.yml logs mock-gateway)"
+            if echo "$logs" | grep -q 'REGISTER light-1' && echo "$logs" | grep -q 'TELEMETRY light-1'; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          echo "$logs"
+          test "$ready" -eq 1
+          docker compose -f docker-compose.example.yml down -v
+
       - name: Run MQTT playground integration test
         run: |
           docker compose -f docker-compose.mqtt.example.yml up --build -d
