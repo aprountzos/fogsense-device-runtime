@@ -64,3 +64,30 @@ func TestMQTTRegistrationAckRequiresMatchingDeviceBoot(t *testing.T) {
 		t.Fatal("matching accepted registration acknowledgement should register the device")
 	}
 }
+
+func TestMQTTCommandAcknowledgementIsQueued(t *testing.T) {
+	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current"}
+	client := NewClient(Config{Device: dev, Transport: "mqtt"})
+
+	client.handleMQTTCommand([]byte(`{"commandId":"cmd-1","name":"TURN_ON"}`))
+
+	if len(client.queue) != 1 {
+		t.Fatalf("queued messages = %d, want 1", len(client.queue))
+	}
+	msg := client.queue[0]
+	if msg.Path != "/devices/commands/ack" {
+		t.Fatalf("queued path = %q, want command acknowledgement path", msg.Path)
+	}
+	if got := msg.Body["deviceId"]; got != "light-1" {
+		t.Fatalf("deviceId = %v, want light-1", got)
+	}
+	if got := msg.Body["bootId"]; got != "boot-current" {
+		t.Fatalf("bootId = %v, want boot-current")
+	}
+	if got := msg.Body["commandId"]; got != "cmd-1" {
+		t.Fatalf("commandId = %v, want cmd-1", got)
+	}
+	if got := msg.Body["seq"]; got != int64(1) {
+		t.Fatalf("seq = %v, want 1", got)
+	}
+}
