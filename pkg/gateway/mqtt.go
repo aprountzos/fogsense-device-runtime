@@ -24,11 +24,11 @@ func (c *Client) startMQTT() {
 	} else if strings.HasPrefix(brokerURL, "tcp://") {
 		brokerURL = "mqtt://" + strings.TrimPrefix(brokerURL, "tcp://")
 	}
-	if u, err := url.Parse(brokerURL); err != nil || (u.Scheme != "mqtt" && u.Scheme != "tls") || u.Host == "" {
+	u, err := url.Parse(brokerURL)
+	if err != nil || (u.Scheme != "mqtt" && u.Scheme != "tls") || u.Host == "" {
 		log.Printf("invalid MQTT broker URL %q: expected mqtt:// or mqtts://", c.mqttURL)
 		return
 	}
-	u, _ := url.Parse(brokerURL)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c.mu.Lock()
