@@ -75,6 +75,34 @@ jobs:
       - name: Build runtime image
         run: docker build -t fogsense-device-runtime:ci .
 
+      - name: Run MQTT playground integration test
+        run: |
+          docker compose -f docker-compose.mqtt.example.yml up --build -d
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
+            if echo "$logs" | grep -q "registered with MQTT gateway"; then
+              break
+            fi
+            sleep 2
+          done
+          echo "$logs"
+          echo "$logs" | grep -q "registered with MQTT gateway"
+          echo "$logs" | grep -q "/telemetry"
+
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \
+            mosquitto_pub -h localhost \
+            -t fogsense/v1/devices/mqtt-light-1/commands \
+            -m '{"commandId":"ci-command-1","name":"TURN_ON"}'
+
+          sleep 3
+          logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
+          echo "$logs"
+          echo "$logs" | grep -q "/commands/ack"
+
+      - name: Stop MQTT playground
+        if: always()
+        run: docker compose -f docker-compose.mqtt.example.yml down -v
+
   build-docs:
     name: Build Documentation
     runs-on: ubuntu-latest
