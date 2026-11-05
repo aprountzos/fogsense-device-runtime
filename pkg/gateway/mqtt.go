@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -17,6 +18,8 @@ import (
 )
 
 const mqttTopicPrefix = "fogsense/v1/devices"
+
+var errMQTTRejected = errors.New("gateway application rejected MQTT message")
 
 func (c *Client) startMQTT() {
 	if c.mqttClientID == "" {
@@ -263,7 +266,7 @@ func (c *Client) publishMQTTAndWaitAck(ctx context.Context, msg OutboundMessage)
 	select {
 	case accepted := <-ack:
 		if !accepted {
-			return fmt.Errorf("gateway rejected message %s", msg.MessageID)
+			return fmt.Errorf("%w: %s", errMQTTRejected, msg.MessageID)
 		}
 		return nil
 	case <-ctx.Done():
