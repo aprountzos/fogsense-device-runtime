@@ -24,7 +24,11 @@ services:
       - mqtt-secure-gateway-data:/data
       - ./secrets/mosquitto/certs:/mosquitto/certs:ro
     healthcheck:
-      disable: true
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   mqtt-light:
     build: .
