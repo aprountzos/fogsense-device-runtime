@@ -15,7 +15,7 @@ on:
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
       - 'docs/**'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
@@ -30,7 +30,7 @@ on:
       - 'docker-compose.example.yml'
       - 'docker-compose.mqtt.example.yml'
       - 'docs/**'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/**'
 
 jobs:
   test-go:
