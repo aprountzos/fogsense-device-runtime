@@ -52,6 +52,7 @@ services:
       DEVICE_ID: mqtt-sensor-1
       GATEWAY_TRANSPORT: mqtt
       MQTT_BROKER_URL: mqtts://mqtt-broker:8883
+      MQTT_CA_FILE: /mosquitto/certs/ca.crt
       MQTT_USERNAME: mqtt-sensor-1
       MQTT_PASSWORD: ${MQTT_SENSOR_PASSWORD:?set MQTT_SENSOR_PASSWORD}
       ADVERTISE_URL: http://mqtt-sensor:8080
