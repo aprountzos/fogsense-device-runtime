@@ -82,7 +82,7 @@ func TestMQTTCommandAcknowledgementIsQueued(t *testing.T) {
 		t.Fatalf("deviceId = %v, want light-1", got)
 	}
 	if got := msg.Body["bootId"]; got != "boot-current" {
-		t.Fatalf("bootId = %v, want boot-current")
+		t.Fatalf("bootId = %v, want boot-current", got)
 	}
 	if got := msg.Body["commandId"]; got != "cmd-1" {
 		t.Fatalf("commandId = %v, want cmd-1", got)
