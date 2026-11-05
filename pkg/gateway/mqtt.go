@@ -2,9 +2,9 @@ package gateway
 
 import (
 	"context"
-	"log"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -168,6 +168,24 @@ func (c *Client) publishMQTT(ctx context.Context, path string, body interface{})
 	}
 	_, err = cm.Publish(ctx, &paho.Publish{QoS: 1, Topic: topic, Payload: payload})
 	return err
+}
+
+func (c *Client) waitForMQTTRegistration(ctx context.Context) error {
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		c.mu.Lock()
+		registered := c.registered
+		c.mu.Unlock()
+		if registered {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for MQTT registration acknowledgement: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (c *Client) handleMQTTRegistrationAck(payload []byte) {
