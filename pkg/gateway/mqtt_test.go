@@ -1,7 +1,16 @@
 package gateway
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"fogsense-device-runtime/pkg/device"
 	"fogsense-device-runtime/pkg/spec"
@@ -140,5 +149,48 @@ func TestMQTTDeliveryAcknowledgementCanRejectMessage(t *testing.T) {
 	client.handleMQTTDeliveryAck([]byte(`{"deviceId":"light-1","messageId":"message-2","accepted":false}`))
 	if accepted := <-waiter; accepted {
 		t.Fatal("expected gateway rejection")
+	}
+}
+
+func TestBuildMQTTTLSConfigLoadsCustomCA(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{CommonName: "FogSense Test CA"},
+		NotBefore: time.Now().Add(-time.Minute),
+		NotAfter: time.Now().Add(time.Hour),
+		IsCA: true,
+		BasicConstraintsValid: true,
+		KeyUsage: x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := buildMQTTTLSConfig(caPath, "", "")
+	if err != nil {
+		t.Fatalf("build TLS config: %v", err)
+	}
+	if cfg == nil || cfg.RootCAs == nil {
+		t.Fatal("expected custom root CA pool")
+	}
+	if cfg.MinVersion != 0x0303 {
+		t.Fatalf("minimum TLS version = %x, want TLS 1.2 (0x0303)", cfg.MinVersion)
+	}
+}
+
+func TestBuildMQTTTLSConfigRequiresClientCertificatePair(t *testing.T) {
+	if _, err := buildMQTTTLSConfig("", "client.crt", ""); err == nil {
+		t.Fatal("expected missing client key to fail")
+	}
+	if _, err := buildMQTTTLSConfig("", "", "client.key"); err == nil {
+		t.Fatal("expected missing client certificate to fail")
 	}
 }
