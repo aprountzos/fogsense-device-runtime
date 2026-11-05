@@ -110,6 +110,22 @@ docker compose -f docker-compose.example.yml up --build
 curl http://localhost:8081/debug/devices
 ```
 
+## MQTT Docker Compose playground
+
+For an MQTT-based setup, the repository also includes `docker-compose.mqtt.example.yml`. It starts a local Mosquitto broker, the MQTT mock gateway and one smart-light device:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml up --build
+```
+
+Follow the MQTT device and gateway logs:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml logs -f mqtt-light mqtt-gateway
+```
+
+This broker is configured for anonymous local development only. Do not expose it publicly. For broker credentials, TLS and topic ACL recommendations, see the [MQTT 5 Transport guide](./mqtt.md).
+
 ## Health Check
 
 The Docker image includes a built-in health check:
