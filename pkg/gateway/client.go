@@ -257,6 +257,11 @@ func (c *Client) doRegister() time.Duration {
 		c.mu.Unlock()
 		return time.Second
 	}
+	if c.transport == "mqtt" {
+		// Every registration/heartbeat must be accepted by the gateway before
+		// the client considers itself registered and resumes queue delivery.
+		c.registered = false
+	}
 	c.mu.Unlock()
 
 	body := map[string]interface{}{
