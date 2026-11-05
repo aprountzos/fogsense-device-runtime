@@ -129,7 +129,7 @@ If you want to use MQTT instead of the HTTP gateway, start the repository's loca
 docker compose -f docker-compose.mqtt.example.yml up --build
 ```
 
-This starts Mosquitto, the MQTT mock gateway and a smart-light runtime configured with `GATEWAY_TRANSPORT=mqtt`. Follow the output with:
+This starts Mosquitto, the MQTT mock gateway, a smart-light runtime and a temperature-sensor runtime configured with `GATEWAY_TRANSPORT=mqtt`. Follow the output with:
 
 ```bash
 docker compose -f docker-compose.mqtt.example.yml logs -f mqtt-light mqtt-gateway
