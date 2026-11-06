@@ -14,6 +14,8 @@ import (
 
 	"fogsense-device-runtime/pkg/device"
 	"fogsense-device-runtime/pkg/spec"
+
+	"github.com/eclipse/paho.golang/paho"
 )
 
 func TestMQTTTopic(t *testing.T) {
@@ -78,27 +80,30 @@ func TestMQTTRegistrationAckRequiresMatchingDeviceBoot(t *testing.T) {
 func TestMQTTCommandAcknowledgementIsQueued(t *testing.T) {
 	dev := &device.Device{DeviceID: "light-1", BootID: "boot-current", Spec: &spec.DeviceSpec{}}
 	client := NewClient(Config{Device: dev, Transport: "mqtt"})
+	received := paho.PublishReceived{
+		Packet: &paho.Publish{Payload: []byte(`{"commandId":"cmd-1","name":"TURN_ON"}`)},
+	}
 
-	client.handleMQTTCommand([]byte(`{"commandId":"cmd-1","name":"TURN_ON"}`))
+	if !client.handleMQTTCommand(received) {
+		t.Fatal("command should be handled when its acknowledgement is durably queued")
+	}
 
-	if len(client.queue) != 1 {
-		t.Fatalf("queued messages = %d, want 1", len(client.queue))
+	acks := dev.PendingCommandAcks()
+	if len(acks) != 1 {
+		t.Fatalf("pending command acknowledgements = %d, want 1", len(acks))
 	}
-	msg := client.queue[0]
-	if msg.Path != "/devices/commands/ack" {
-		t.Fatalf("queued path = %q, want command acknowledgement path", msg.Path)
+	ack := acks[0]
+	if ack.CommandID != "cmd-1" {
+		t.Fatalf("commandId = %q, want cmd-1", ack.CommandID)
 	}
-	if got := msg.Body["deviceId"]; got != "light-1" {
-		t.Fatalf("deviceId = %v, want light-1", got)
+	if ack.MessageID == "" {
+		t.Fatal("expected a stable message ID for the pending acknowledgement")
 	}
-	if got := msg.Body["bootId"]; got != "boot-current" {
-		t.Fatalf("bootId = %v, want boot-current", got)
+	if ack.Status < 100 || ack.Status > 599 {
+		t.Fatalf("invalid acknowledgement status: %d", ack.Status)
 	}
-	if got := msg.Body["commandId"]; got != "cmd-1" {
-		t.Fatalf("commandId = %v, want cmd-1", got)
-	}
-	if got := msg.Body["seq"]; got != int64(1) {
-		t.Fatalf("seq = %v, want 1", got)
+	if ack.Response == nil {
+		t.Fatal("expected command response to be persisted")
 	}
 }
 
