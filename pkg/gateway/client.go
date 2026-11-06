@@ -233,7 +233,7 @@ func (c *Client) EnqueueEvent(evt device.Event) {
 	c.enqueue(path, payload)
 }
 
-func (c *Client) enqueue(path string, payload map[string]interface{}) {
+func (c *Client) enqueue(path string, payload map[string]interface{}) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -254,17 +254,18 @@ func (c *Client) enqueue(path string, payload map[string]interface{}) {
 		}
 		c.lastError = "outbox full; newest message rejected"
 		log.Printf("outbox full for device %s; rejected message %s", c.dev.DeviceID, messageID)
-		return
+		return false
 	}
 	nextQueue := append(append([]OutboundMessage(nil), c.queue...), OutboundMessage{MessageID: messageID, Path: path, Body: payload})
 	if err := c.persistOutboxLocked(nextSeq, nextQueue, c.dropped); err != nil {
 		c.lastError = err.Error()
 		c.dropped++
 		log.Printf("failed to persist outbound message %s: %v", messageID, err)
-		return
+		return false
 	}
 	c.seq = nextSeq
 	c.queue = nextQueue
+	return true
 }
 
 func (c *Client) persistOutboxLocked(seq int64, queue []OutboundMessage, dropped int64) error {

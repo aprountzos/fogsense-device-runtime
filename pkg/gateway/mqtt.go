@@ -62,7 +62,11 @@ func (c *Client) startMQTT() {
 					if strings.HasSuffix(received.Packet.Topic, "/register/ack") {
 						c.handleMQTTRegistrationAck(received.Packet.Payload)
 					} else if strings.HasSuffix(received.Packet.Topic, "/commands") {
-						c.handleMQTTCommand(received.Packet.Payload)
+						// Do not acknowledge the broker delivery until the command
+						// result is durably queued for delivery to the gateway.
+						if !c.handleMQTTCommand(received.Packet.Payload) {
+							return false, nil
+						}
 					} else if strings.HasSuffix(received.Packet.Topic, "/delivery/ack") {
 						c.handleMQTTDeliveryAck(received.Packet.Payload)
 					}
@@ -228,8 +232,13 @@ func (c *Client) handleMQTTRegistrationAck(payload []byte) {
 	}
 }
 
-func (c *Client) handleMQTTCommand(payload []byte) {
+func (c *Client) handleMQTTCommand(payload []byte) bool {
 	status, response := c.dev.ExecuteCommand(payload)
+	if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
+		// The command was not committed. Let QoS 1 redeliver it rather than
+		// acknowledging an execution result that does not exist durably.
+		return false
+	}
 	var command map[string]interface{}
 	_ = json.Unmarshal(payload, &command)
 	result := map[string]interface{}{
@@ -241,8 +250,11 @@ func (c *Client) handleMQTTCommand(payload []byte) {
 	// Queue the acknowledgement instead of publishing from the receive callback.
 	// This keeps the callback short and lets the normal outbound retry loop deliver
 	// the result after a temporary broker outage.
-	c.enqueue("/devices/commands/ack", result)
+	if !c.enqueue("/devices/commands/ack", result) {
+		return false
+	}
 	c.Kick()
+	return true
 }
 
 func (c *Client) publishMQTTAndWaitAck(ctx context.Context, msg OutboundMessage) error {
