@@ -204,12 +204,16 @@ func (c *Client) Kick() {
 	}
 }
 
-func (c *Client) EnqueueTelemetry(readings []device.Reading) {
+func (c *Client) EnqueueTelemetry(readings []device.Reading, stableMessageID ...string) bool {
 	if len(readings) == 0 {
-		return
+		return true
 	}
 	path := fmt.Sprintf("/devices/%s/telemetry", url.PathEscape(c.dev.DeviceID))
-	c.enqueue(path, map[string]interface{}{"readings": readings})
+	messageID := ""
+	if len(stableMessageID) > 0 {
+		messageID = stableMessageID[0]
+	}
+	return c.enqueueWithMessageID(path, map[string]interface{}{"readings": readings}, messageID)
 }
 
 func (c *Client) EnqueueEvent(evt device.Event) {
@@ -234,11 +238,25 @@ func (c *Client) EnqueueEvent(evt device.Event) {
 }
 
 func (c *Client) enqueue(path string, payload map[string]interface{}) bool {
+	return c.enqueueWithMessageID(path, payload, "")
+}
+
+func (c *Client) enqueueWithMessageID(path string, payload map[string]interface{}, stableMessageID string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if stableMessageID != "" {
+		for _, queued := range c.queue {
+			if queued.MessageID == stableMessageID {
+				return true
+			}
+		}
+	}
 	nextSeq := c.seq + 1
-	messageID := generateUUID()
+	messageID := stableMessageID
+	if messageID == "" {
+		messageID = generateUUID()
+	}
 	payload["messageId"] = messageID
 	payload["deviceId"] = c.dev.DeviceID
 	payload["bootId"] = c.dev.BootID

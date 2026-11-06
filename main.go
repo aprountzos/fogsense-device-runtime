@@ -265,8 +265,19 @@ func main() {
 			case now := <-ticker.C:
 				dt := now.Sub(last).Seconds()
 				last = now
-				readings := dev.Tick(dt)
-				gwClient.EnqueueTelemetry(readings)
+				dev.Tick(dt)
+				for _, batch := range dev.PendingTelemetry() {
+					if !gwClient.EnqueueTelemetry(batch.Readings, batch.MessageID) {
+						break
+					}
+					if err := dev.AcknowledgeTelemetry(batch.MessageID); err != nil {
+						logJSON("error", "failed to acknowledge telemetry outbox handoff", map[string]interface{}{
+							"messageId": batch.MessageID,
+							"error": err.Error(),
+						})
+						break
+					}
+				}
 			}
 		}
 	}()
