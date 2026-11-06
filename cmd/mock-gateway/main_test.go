@@ -137,6 +137,7 @@ func TestHTTPGatewayDeduplicationAndPayloadSurviveGatewayRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	gatewayStore = store
+	defer gatewayStore.Close()
 	dedupeHealthy.Store(true)
 
 	secondHandler := handler()
