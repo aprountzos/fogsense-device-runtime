@@ -13,6 +13,7 @@ import (
 )
 
 const MaxRecent = 1000
+const MaxPendingTelemetry = 500
 
 func round2(n float64) float64 {
 	return math.Round(n*100) / 100
@@ -67,6 +68,10 @@ type CommandRecord struct {
 	Status int `json:"status"`
 	Body map[string]interface{} `json:"body"`
 }
+type PendingTelemetryBatch struct {
+	MessageID string `json:"messageId"`
+	Readings []Reading `json:"readings"`
+}
 type PersistedSpikeFault struct {
 	Metric *string `json:"metric,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -99,6 +104,7 @@ type Snapshot struct {
 	Commands []CommandRecord `json:"commands"`
 	Runtime *RuntimeSnapshot `json:"runtime,omitempty"`
 	Telemetry *TelemetrySnapshot `json:"telemetry,omitempty"`
+	PendingTelemetry []PendingTelemetryBatch `json:"pendingTelemetry,omitempty"`
 }
 type StateStore interface {
 	Load(deviceID string) (Snapshot, error)
@@ -124,6 +130,7 @@ type Device struct {
 	MetricOrder  []string
 	Recent       map[string]CachedCommand
 	RecentOrder  []string
+	PendingTelemetryBatches []PendingTelemetryBatch
 	Listeners    []func(Event)
 	Store StateStore
 }
@@ -218,6 +225,9 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 		if snapshot.Telemetry != nil {
 			if err := d.restoreTelemetry(snapshot.Telemetry); err != nil { return nil, fmt.Errorf("restore telemetry state: %w", err) }
 		}
+		if err := d.restorePendingTelemetry(snapshot.PendingTelemetry); err != nil {
+			return nil, fmt.Errorf("restore pending telemetry: %w", err)
+		}
 	}
 	return d, nil
 }
@@ -273,13 +283,81 @@ func (d *Device) restoreTelemetry(snapshot *TelemetrySnapshot) error {
 	return nil
 }
 
+func (d *Device) restorePendingTelemetry(pending []PendingTelemetryBatch) error {
+	if len(pending) > MaxPendingTelemetry {
+		return fmt.Errorf("persisted pending telemetry exceeds capacity %d", MaxPendingTelemetry)
+	}
+	seen := make(map[string]struct{}, len(pending))
+	for _, batch := range pending {
+		if batch.MessageID == "" || len(batch.Readings) == 0 {
+			return fmt.Errorf("persisted pending telemetry contains an invalid batch")
+		}
+		if _, exists := seen[batch.MessageID]; exists {
+			return fmt.Errorf("persisted pending telemetry contains duplicate message ID %q", batch.MessageID)
+		}
+		seen[batch.MessageID] = struct{}{}
+		for _, reading := range batch.Readings {
+			metric, ok := d.Metrics[reading.Metric]
+			if !ok || reading.Unit != metric.Def.Unit || math.IsNaN(reading.Value) || math.IsInf(reading.Value, 0) {
+				return fmt.Errorf("persisted pending telemetry contains an invalid reading for metric %q", reading.Metric)
+			}
+			if _, err := time.Parse(time.RFC3339Nano, reading.TS); err != nil {
+				return fmt.Errorf("persisted pending telemetry has an invalid timestamp: %w", err)
+			}
+		}
+	}
+	d.PendingTelemetryBatches = clonePendingTelemetry(pending)
+	return nil
+}
+
+func clonePendingTelemetry(pending []PendingTelemetryBatch) []PendingTelemetryBatch {
+	cloned := make([]PendingTelemetryBatch, len(pending))
+	for i, batch := range pending {
+		cloned[i] = PendingTelemetryBatch{MessageID: batch.MessageID, Readings: append([]Reading(nil), batch.Readings...)}
+	}
+	return cloned
+}
+
+func (d *Device) PendingTelemetry() []PendingTelemetryBatch {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return clonePendingTelemetry(d.PendingTelemetryBatches)
+}
+
+// AcknowledgeTelemetry transfers ownership of a batch to the durable transport outbox.
+func (d *Device) AcknowledgeTelemetry(messageID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	index := -1
+	for i, batch := range d.PendingTelemetryBatches {
+		if batch.MessageID == messageID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return nil
+	}
+	previous := d.PendingTelemetryBatches
+	next := append([]PendingTelemetryBatch(nil), previous[:index]...)
+	next = append(next, previous[index+1:]...)
+	d.PendingTelemetryBatches = next
+	if d.Store != nil {
+		if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
+			d.PendingTelemetryBatches = previous
+			return fmt.Errorf("persist telemetry handoff: %w", err)
+		}
+	}
+	return nil
+}
+
 func (d *Device) persistRuntimeLocked() error { if d.Store==nil{return nil}; return d.Store.Save(d.snapshot(d.State,d.Recent,d.RecentOrder)) }
 func (d *Device) snapshot(state map[string]interface{}, recent map[string]CachedCommand, order []string) Snapshot {
 	records := make([]CommandRecord, 0, len(order))
 	for _, id := range order {
 		if c, ok := recent[id]; ok { records = append(records, CommandRecord{ID:id, Status:c.Status, Body:c.Body}) }
 	}
-	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot()}
+	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot(), PendingTelemetry:clonePendingTelemetry(d.PendingTelemetryBatches)}
 }
 
 func (d *Device) OnEvent(fn func(Event)) {
@@ -385,6 +463,7 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 	previousSpike := d.Spike
 	previousFlood := d.Flood
 	previousTelemetry := d.telemetrySnapshot()
+	previousPendingTelemetry := clonePendingTelemetry(d.PendingTelemetryBatches)
 	previousOfflineRNGState := d.OfflineRng.State()
 	rollback := func() {
 		d.VT = previousVT
@@ -393,6 +472,7 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		d.Spike = previousSpike
 		d.Flood = previousFlood
 		_ = d.restoreTelemetry(previousTelemetry)
+		d.PendingTelemetryBatches = previousPendingTelemetry
 		d.OfflineRng.Restore(previousOfflineRNGState)
 	}
 
@@ -436,6 +516,10 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		}
 	}
 
+	if len(d.PendingTelemetryBatches) >= MaxPendingTelemetry {
+		return nil
+	}
+
 	mult := 1.0
 	if d.Flood != nil {
 		mult = d.Flood.Multiplier
@@ -450,12 +534,17 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		}
 	}
 
-	// A telemetry checkpoint is committed before readings are handed to the
-	// transport layer. A failed write must not advance the generator.
-	if len(readings) > 0 && d.Store != nil {
-		if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
-			rollback()
-			return nil
+	// Persist each generated batch locally before handing it to the transport.
+	// The stable ID allows a crash between outbox enqueue and local acknowledgement
+	// to be replayed without creating a new logical message.
+	if len(readings) > 0 {
+		batch := PendingTelemetryBatch{MessageID: generateUUID(), Readings: append([]Reading(nil), readings...)}
+		d.PendingTelemetryBatches = append(d.PendingTelemetryBatches, batch)
+		if d.Store != nil {
+			if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
+				rollback()
+				return nil
+			}
 		}
 	}
 
