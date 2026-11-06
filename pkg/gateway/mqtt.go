@@ -65,7 +65,7 @@ func (c *Client) startMQTT() {
 					} else if strings.HasSuffix(received.Packet.Topic, "/commands") {
 						// Do not acknowledge the broker delivery until the command
 						// result is durably queued for delivery to the gateway.
-						if !c.handleMQTTCommand(received.Packet.Payload) {
+						if !c.handleMQTTCommand(received) {
 							return false, nil
 						}
 					} else if strings.HasSuffix(received.Packet.Topic, "/delivery/ack") {
@@ -236,10 +236,12 @@ func (c *Client) handleMQTTRegistrationAck(payload []byte) {
 	}
 }
 
-func (c *Client) handleMQTTCommand(payload []byte) bool {
+func (c *Client) handleMQTTCommand(received paho.PublishReceived) bool {
+	payload := append([]byte(nil), received.Packet.Payload...)
 	status, response := c.dev.ExecuteCommand(payload)
 	if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
-		// The command was not committed. Leave the broker delivery unacknowledged.
+		// Keep the broker delivery unacknowledged and retry the durable commit.
+		go c.retryMQTTCommandDelivery(payload, received.Client, received.Packet)
 		return false
 	}
 	var command map[string]interface{}
@@ -249,10 +251,41 @@ func (c *Client) handleMQTTCommand(payload []byte) bool {
 	// Persist the command result in the device database before acknowledging
 	// the inbound broker delivery. The main loop transfers it to the outbox.
 	if _, err := c.dev.QueueCommandAck(commandID, status, response); err != nil {
-		log.Printf("cannot persist MQTT command acknowledgement for %q: %v", commandID, err)
+		log.Printf("cannot persist MQTT command acknowledgement for %q: %v; will retry", commandID, err)
+		go c.retryMQTTCommandDelivery(payload, received.Client, received.Packet)
 		return false
 	}
 	return true
+}
+
+func (c *Client) retryMQTTCommandDelivery(payload []byte, mqttClient *paho.Client, packet *paho.Publish) {
+	delay := time.Second
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-c.stopChan:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+
+		status, response := c.dev.ExecuteCommand(payload)
+		if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
+			delay = min(delay*2, 30*time.Second)
+			continue
+		}
+		var command map[string]interface{}
+		_ = json.Unmarshal(payload, &command)
+		commandID, _ := command["commandId"].(string)
+		if _, err := c.dev.QueueCommandAck(commandID, status, response); err != nil {
+			delay = min(delay*2, 30*time.Second)
+			continue
+		}
+		if err := mqttClient.Ack(packet); err != nil {
+			log.Printf("could not acknowledge retried MQTT command delivery: %v", err)
+		}
+		return
+	}
 }
 
 func (c *Client) publishMQTTAndWaitAck(ctx context.Context, msg OutboundMessage) error {
