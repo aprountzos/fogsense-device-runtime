@@ -51,6 +51,7 @@ services:
       DEVICE_SPEC_FILE: /config/spec.yaml
       OUTBOX_PATH: /data/outbox.json
       DEVICE_STATE_PATH: /data/device-state.db
+      DEVICE_STATE_PATH: /data/device-state.db
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
       - ./secrets/mosquitto/certs:/mosquitto/certs:ro
@@ -72,6 +73,7 @@ services:
       ADVERTISE_URL: http://mqtt-sensor:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
       OUTBOX_PATH: /data/outbox.json
+      DEVICE_STATE_PATH: /data/device-state.db
     volumes:
       - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
       - ./secrets/mosquitto/certs:/mosquitto/certs:ro
