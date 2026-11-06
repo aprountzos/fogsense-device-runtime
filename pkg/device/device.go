@@ -374,6 +374,21 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	previousVT := d.VT
+	previousStatus := d.Status
+	previousOfflineUntil := d.OfflineUntil
+	previousSpike := d.Spike
+	previousFlood := d.Flood
+	previousTelemetry := d.telemetrySnapshot()
+	rollback := func() {
+		d.VT = previousVT
+		d.Status = previousStatus
+		d.OfflineUntil = previousOfflineUntil
+		d.Spike = previousSpike
+		d.Flood = previousFlood
+		_ = d.restoreTelemetry(previousTelemetry)
+	}
+
 	dt := dtRealSec * d.TimeScale
 	d.VT += dt
 
@@ -384,21 +399,36 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		d.Flood = nil
 	}
 
-	if d.Status=="OFFLINE" {
-		if d.VT>=d.OfflineUntil {
-			oldUntil:=d.OfflineUntil; d.Status,d.OfflineUntil="ONLINE",0
-			if err:=d.persistRuntimeLocked();err!=nil{d.Status,d.OfflineUntil="OFFLINE",oldUntil;return nil}
-			for _,metric:=range d.Metrics{metric.NextAt=d.VT}
-			d.emit(Event{Type:"STATUS_CHANGED",Status:"ONLINE",Reason:"RECOVERED"})
+	if d.Status == "OFFLINE" {
+		if d.VT >= d.OfflineUntil {
+			d.Status, d.OfflineUntil = "ONLINE", 0
+			if err := d.persistRuntimeLocked(); err != nil {
+				rollback()
+				return nil
+			}
+			for _, metric := range d.Metrics {
+				metric.NextAt = d.VT
+			}
+			// Persist the reset emission schedule before announcing recovery.
+			if err := d.persistRuntimeLocked(); err != nil {
+				rollback()
+				return nil
+			}
+			d.emit(Event{Type: "STATUS_CHANGED", Status: "ONLINE", Reason: "RECOVERED"})
 		}
 		return nil
 	}
-	if d.Spec.OfflineRate>0 {
-		p:=1.0-math.Pow(1.0-d.Spec.OfflineRate,dt)
-		if d.Rng.Next()<p {
-			oldStatus,oldUntil:=d.Status,d.OfflineUntil; d.Status="OFFLINE"; d.OfflineUntil=d.VT+5.0+d.Rng.Next()*15.0
-			if err:=d.persistRuntimeLocked();err!=nil{d.Status,d.OfflineUntil=oldStatus,oldUntil;return nil}
-			d.emit(Event{Type:"STATUS_CHANGED",Status:"OFFLINE",Reason:"RANDOM"})
+
+	if d.Spec.OfflineRate > 0 {
+		p := 1.0 - math.Pow(1.0-d.Spec.OfflineRate, dt)
+		if d.Rng.Next() < p {
+			d.Status = "OFFLINE"
+			d.OfflineUntil = d.VT + 5.0 + d.Rng.Next()*15.0
+			if err := d.persistRuntimeLocked(); err != nil {
+				rollback()
+				return nil
+			}
+			d.emit(Event{Type: "STATUS_CHANGED", Status: "OFFLINE", Reason: "RANDOM"})
 			return nil
 		}
 	}
@@ -414,6 +444,15 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		if d.VT >= m.NextAt {
 			readings = append(readings, d.sample(m))
 			m.NextAt = d.VT + m.Def.IntervalSec/mult
+		}
+	}
+
+	// A telemetry checkpoint is committed before readings are handed to the
+	// transport layer. A failed write must not advance the generator.
+	if len(readings) > 0 && d.Store != nil {
+		if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
+			rollback()
+			return nil
 		}
 	}
 
