@@ -387,6 +387,7 @@ func (d *Device) restorePendingCommandAcks(pending []PendingCommandAck) error {
 		return fmt.Errorf("persisted pending command acknowledgements exceed capacity %d", MaxPendingCommandAcks)
 	}
 	seen := make(map[string]struct{}, len(pending))
+	seenCommands := make(map[string]struct{}, len(pending))
 	for _, ack := range pending {
 		if ack.MessageID == "" || ack.Status < 100 || ack.Status > 599 || ack.Response == nil {
 			return fmt.Errorf("persisted pending command acknowledgement is invalid")
@@ -395,6 +396,12 @@ func (d *Device) restorePendingCommandAcks(pending []PendingCommandAck) error {
 			return fmt.Errorf("persisted pending command acknowledgements contain duplicate message ID %q", ack.MessageID)
 		}
 		seen[ack.MessageID] = struct{}{}
+		if ack.CommandID != "" {
+			if _, exists := seenCommands[ack.CommandID]; exists {
+				return fmt.Errorf("persisted pending command acknowledgements contain duplicate command ID %q", ack.CommandID)
+			}
+			seenCommands[ack.CommandID] = struct{}{}
+		}
 	}
 	d.PendingCommandAckBatches = clonePendingCommandAcks(pending)
 	return nil
