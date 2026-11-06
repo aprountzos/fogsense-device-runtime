@@ -236,10 +236,18 @@ func (c *Client) handleMQTTRegistrationAck(payload []byte) {
 	}
 }
 
+func retryableMQTTCommandFailure(status int, response map[string]interface{}) bool {
+	if status != 503 {
+		return false
+	}
+	reason, _ := response["reason"].(string)
+	return reason == "PERSISTENCE_FAILED" || reason == "PENDING_EVENT_QUEUE_FULL"
+}
+
 func (c *Client) handleMQTTCommand(received paho.PublishReceived) bool {
 	payload := append([]byte(nil), received.Packet.Payload...)
 	status, response := c.dev.ExecuteCommand(payload)
-	if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
+	if retryableMQTTCommandFailure(status, response) {
 		// Keep the broker delivery unacknowledged and retry the durable commit.
 		c.startMQTTCommandRetry(payload, received.Client, received.Packet)
 		return false
@@ -284,7 +292,7 @@ func (c *Client) retryMQTTCommandDelivery(payload []byte, mqttClient *paho.Clien
 		}
 
 		status, response := c.dev.ExecuteCommand(payload)
-		if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
+		if retryableMQTTCommandFailure(status, response) {
 			delay = min(delay*2, 30*time.Second)
 			continue
 		}
