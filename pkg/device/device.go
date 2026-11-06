@@ -14,6 +14,7 @@ import (
 
 const MaxRecent = 1000
 const MaxPendingTelemetry = 500
+const MaxPendingCommandAcks = 1000
 
 func round2(n float64) float64 {
 	return math.Round(n*100) / 100
@@ -72,6 +73,12 @@ type PendingTelemetryBatch struct {
 	MessageID string `json:"messageId"`
 	Readings []Reading `json:"readings"`
 }
+type PendingCommandAck struct {
+	MessageID string `json:"messageId"`
+	CommandID string `json:"commandId,omitempty"`
+	Status int `json:"status"`
+	Response map[string]interface{} `json:"response"`
+}
 type PersistedSpikeFault struct {
 	Metric *string `json:"metric,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -105,6 +112,7 @@ type Snapshot struct {
 	Runtime *RuntimeSnapshot `json:"runtime,omitempty"`
 	Telemetry *TelemetrySnapshot `json:"telemetry,omitempty"`
 	PendingTelemetry []PendingTelemetryBatch `json:"pendingTelemetry,omitempty"`
+	PendingCommandAcks []PendingCommandAck `json:"pendingCommandAcks,omitempty"`
 }
 type StateStore interface {
 	Load(deviceID string) (Snapshot, error)
@@ -131,6 +139,7 @@ type Device struct {
 	Recent       map[string]CachedCommand
 	RecentOrder  []string
 	PendingTelemetryBatches []PendingTelemetryBatch
+	PendingCommandAckBatches []PendingCommandAck
 	Listeners    []func(Event)
 	Store StateStore
 }
@@ -227,6 +236,9 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 		}
 		if err := d.restorePendingTelemetry(snapshot.PendingTelemetry); err != nil {
 			return nil, fmt.Errorf("restore pending telemetry: %w", err)
+		}
+		if err := d.restorePendingCommandAcks(snapshot.PendingCommandAcks); err != nil {
+			return nil, fmt.Errorf("restore pending command acknowledgements: %w", err)
 		}
 	}
 	return d, nil
@@ -359,13 +371,96 @@ func (d *Device) AcknowledgeTelemetry(messageID string) error {
 	return nil
 }
 
+func clonePendingCommandAcks(pending []PendingCommandAck) []PendingCommandAck {
+	cloned := make([]PendingCommandAck, len(pending))
+	for i, ack := range pending {
+		body, _ := json.Marshal(ack.Response)
+		var response map[string]interface{}
+		_ = json.Unmarshal(body, &response)
+		cloned[i] = PendingCommandAck{MessageID: ack.MessageID, CommandID: ack.CommandID, Status: ack.Status, Response: response}
+	}
+	return cloned
+}
+
+func (d *Device) restorePendingCommandAcks(pending []PendingCommandAck) error {
+	if len(pending) > MaxPendingCommandAcks {
+		return fmt.Errorf("persisted pending command acknowledgements exceed capacity %d", MaxPendingCommandAcks)
+	}
+	seen := make(map[string]struct{}, len(pending))
+	for _, ack := range pending {
+		if ack.MessageID == "" || ack.Status < 100 || ack.Status > 599 || ack.Response == nil {
+			return fmt.Errorf("persisted pending command acknowledgement is invalid")
+		}
+		if _, exists := seen[ack.MessageID]; exists {
+			return fmt.Errorf("persisted pending command acknowledgements contain duplicate message ID %q", ack.MessageID)
+		}
+		seen[ack.MessageID] = struct{}{}
+	}
+	d.PendingCommandAckBatches = clonePendingCommandAcks(pending)
+	return nil
+}
+
+func (d *Device) PendingCommandAcks() []PendingCommandAck {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return clonePendingCommandAcks(d.PendingCommandAckBatches)
+}
+
+// QueueCommandAck durably records an inbound MQTT command result before the
+// broker delivery is acknowledged.
+func (d *Device) QueueCommandAck(commandID string, status int, response map[string]interface{}) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if commandID != "" {
+		for _, ack := range d.PendingCommandAckBatches {
+			if ack.CommandID == commandID {
+				return ack.MessageID, nil
+			}
+		}
+	}
+	if len(d.PendingCommandAckBatches) >= MaxPendingCommandAcks {
+		return "", fmt.Errorf("pending command acknowledgement queue is full")
+	}
+	messageID := generateUUID()
+	ack := PendingCommandAck{MessageID: messageID, CommandID: commandID, Status: status, Response: response}
+	d.PendingCommandAckBatches = append(d.PendingCommandAckBatches, ack)
+	if d.Store != nil {
+		if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
+			d.PendingCommandAckBatches = d.PendingCommandAckBatches[:len(d.PendingCommandAckBatches)-1]
+			return "", fmt.Errorf("persist pending command acknowledgement: %w", err)
+		}
+	}
+	return messageID, nil
+}
+
+func (d *Device) AcknowledgeCommandAck(messageID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	index := -1
+	for i, ack := range d.PendingCommandAckBatches {
+		if ack.MessageID == messageID { index = i; break }
+	}
+	if index < 0 { return nil }
+	previous := d.PendingCommandAckBatches
+	next := append([]PendingCommandAck(nil), previous[:index]...)
+	next = append(next, previous[index+1:]...)
+	d.PendingCommandAckBatches = next
+	if d.Store != nil {
+		if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
+			d.PendingCommandAckBatches = previous
+			return fmt.Errorf("persist command acknowledgement handoff: %w", err)
+		}
+	}
+	return nil
+}
+
 func (d *Device) persistRuntimeLocked() error { if d.Store==nil{return nil}; return d.Store.Save(d.snapshot(d.State,d.Recent,d.RecentOrder)) }
 func (d *Device) snapshot(state map[string]interface{}, recent map[string]CachedCommand, order []string) Snapshot {
 	records := make([]CommandRecord, 0, len(order))
 	for _, id := range order {
 		if c, ok := recent[id]; ok { records = append(records, CommandRecord{ID:id, Status:c.Status, Body:c.Body}) }
 	}
-	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot(), PendingTelemetry:clonePendingTelemetry(d.PendingTelemetryBatches)}
+	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot(), PendingTelemetry:clonePendingTelemetry(d.PendingTelemetryBatches), PendingCommandAcks:clonePendingCommandAcks(d.PendingCommandAckBatches)}
 }
 
 func (d *Device) OnEvent(fn func(Event)) {
@@ -782,6 +877,7 @@ func (d *Device) ControlStatus() map[string]interface{} {
 		"deviceTimeSec": round2(d.VT),
 		"offlineUntil":  offUntil,
 		"pendingTelemetryBatches": len(d.PendingTelemetryBatches),
+		"pendingCommandAcks": len(d.PendingCommandAckBatches),
 		"spike":         d.Spike,
 		"flood":         d.Flood,
 	}
