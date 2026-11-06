@@ -651,8 +651,8 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 	previousSpike := d.Spike
 	previousFlood := d.Flood
 	previousTelemetry := d.telemetrySnapshot()
-	previousPendingTelemetry := clonePendingTelemetry(d.PendingTelemetryBatches)
-	previousPendingEvents := clonePendingEvents(d.PendingEventBatches)
+	previousPendingTelemetry := d.PendingTelemetryBatches
+	previousPendingEvents := d.PendingEventBatches
 	previousOfflineRNGState := d.OfflineRng.State()
 	rollback := func() {
 		d.VT = previousVT
@@ -938,7 +938,7 @@ func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 	if value,exists:=req["durationSec"];exists{number,ok:=value.(float64);if !ok||number<=0||number>86400{return 400,map[string]interface{}{"error":"durationSec must be a number between 0 and 86400"}};duration=&number}
 	durationOrDefault:=func(def float64)float64{if duration!=nil{return *duration};return def}
 	oldStatus,oldOfflineUntil,oldSpike,oldFlood:=d.Status,d.OfflineUntil,d.Spike,d.Flood
-	oldPendingEvents := clonePendingEvents(d.PendingEventBatches)
+	oldPendingEvents := d.PendingEventBatches
 	oldTelemetry := d.telemetrySnapshot()
 	reason:=""
 	switch action {
