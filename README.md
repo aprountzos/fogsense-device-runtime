@@ -96,7 +96,7 @@ HTTP remains the default gateway transport. Devices can alternatively publish re
 docker compose -f docker-compose.mqtt.example.yml up --build
 ```
 
-The local playground starts a Mosquitto broker, an MQTT mock gateway, and YAML-configured smart-light and temperature-sensor devices. The gateway persists accepted message IDs and sends application-level acknowledgements.
+The local playground starts a Mosquitto broker, an MQTT mock gateway, and YAML-configured smart-light and temperature-sensor devices. The gateway persists accepted message IDs and sends application-level acknowledgements. The HTTP mock gateway uses a SQLite database at `data/gateway.db` by default (`GATEWAY_STORE_PATH` overrides the path); mount that file on persistent storage to retain accepted telemetry/events and deduplication records across restarts.
 
 The device subscribes to its own command topic and publishes command acknowledgements:
 
