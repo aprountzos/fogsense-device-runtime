@@ -1,22 +1,65 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"fogsense-device-runtime/pkg/gatewaystore"
 )
 
-func TestMQTTSeenMessagesSurviveRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "dedupe", "messages.json")
-	seen := map[string]bool{"mqtt-light-1:message-1": true}
-	if err := saveMQTTSeen(path, seen); err != nil {
-		t.Fatalf("save MQTT dedupe store: %v", err)
-	}
-	recovered, err := loadMQTTSeen(path)
+func TestMQTTAcceptedPayloadAndDeduplicationSurviveRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway", "mqtt-gateway.db")
+	ctx := context.Background()
+	store, err := gatewaystore.Open(path)
 	if err != nil {
-		t.Fatalf("load MQTT dedupe store: %v", err)
+		t.Fatal(err)
 	}
-	if !recovered["mqtt-light-1:message-1"] {
-		t.Fatal("expected MQTT message ID to survive gateway restart")
+	payload := map[string]interface{}{
+		"deviceId": "mqtt-light-1",
+		"bootId": "boot-1",
+		"messageId": "message-1",
+		"seq": 1,
+		"ts": "2026-11-06T00:00:00Z",
+		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 20.5}},
+	}
+	duplicate, err := store.Accept(ctx, "mqtt-light-1", "message-1", "telemetry", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicate {
+		t.Fatal("first MQTT delivery was marked duplicate")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = gatewaystore.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	duplicate, err = store.Accept(ctx, "mqtt-light-1", "message-1", "telemetry", map[string]string{"changed": "payload"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !duplicate {
+		t.Fatal("replayed MQTT message was not marked duplicate")
+	}
+	stored, err := store.Get(ctx, "mqtt-light-1", "message-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Kind != "telemetry" {
+		t.Fatalf("stored kind = %q, want telemetry", stored.Kind)
+	}
+	var recovered map[string]interface{}
+	if err := json.Unmarshal(stored.Payload, &recovered); err != nil {
+		t.Fatal(err)
+	}
+	if recovered["deviceId"] != "mqtt-light-1" || recovered["messageId"] != "message-1" {
+		t.Fatalf("recovered payload = %v", recovered)
 	}
 }
 
