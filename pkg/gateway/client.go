@@ -52,6 +52,7 @@ type ClientStats struct {
 
 type Client struct {
 	mu                  sync.Mutex
+	commandRetryWG     sync.WaitGroup
 	gatewayURL          string
 	dev                 *device.Device
 	endpoint            string
@@ -184,6 +185,7 @@ func (c *Client) Stop() {
 	cancel := c.mqttCancel
 	c.mu.Unlock()
 	close(c.stopChan)
+	c.commandRetryWG.Wait()
 	if cancel != nil {
 		cancel()
 	}
