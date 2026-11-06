@@ -337,7 +337,6 @@ func handler() http.Handler {
 				devices[devID] = rec
 				logMsg("REGISTER %s (%s v%g) at %s [new boot]", devID, devType, version, endpoint)
 			}
-			dedupeHealthy.Store(true)
 			mu.Unlock()
 
 			sendJSON(w, http.StatusOK, map[string]bool{"ok": true})
