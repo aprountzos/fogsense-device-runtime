@@ -280,7 +280,6 @@ func main() {
 						break
 					}
 				}
-				dev.Tick(dt)
 				for _, batch := range dev.PendingTelemetry() {
 					if !gwClient.EnqueueTelemetry(batch.Readings, batch.MessageID) {
 						break
