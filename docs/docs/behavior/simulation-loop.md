@@ -63,7 +63,7 @@ The simulation uses the **Mulberry32** pseudo-random number generator (PRNG). Se
 SEED=42 go run .
 ```
 
-When no seed is provided, a random seed is generated at startup. Once a device has a persisted telemetry checkpoint, the saved generator state takes precedence over the startup seed. The current metric values, next emission times, and last readings are restored alongside it.
+When no seed is provided, a random seed is generated at startup. Telemetry sampling and random offline transitions use independent generator streams, so the offline check on each 250 ms tick does not shift sensor values. Once a device has a persisted telemetry checkpoint, the saved telemetry generator state takes precedence over the startup seed. The current metric values, next emission times, last readings, and offline generator checkpoint are restored alongside it.
 
 Telemetry checkpoints are written when a metric emission is generated, not on every 250 ms tick. This avoids continuous database writes while preserving the generator's position at each emitted batch. Virtual time resumes from the latest persisted checkpoint; time spent stopped does not advance metric schedules.
 
