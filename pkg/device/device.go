@@ -652,6 +652,7 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 	previousFlood := d.Flood
 	previousTelemetry := d.telemetrySnapshot()
 	previousPendingTelemetry := clonePendingTelemetry(d.PendingTelemetryBatches)
+	previousPendingEvents := clonePendingEvents(d.PendingEventBatches)
 	previousOfflineRNGState := d.OfflineRng.State()
 	rollback := func() {
 		d.VT = previousVT
@@ -661,6 +662,7 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		d.Flood = previousFlood
 		_ = d.restoreTelemetry(previousTelemetry)
 		d.PendingTelemetryBatches = previousPendingTelemetry
+		d.PendingEventBatches = previousPendingEvents
 		d.OfflineRng.Restore(previousOfflineRNGState)
 	}
 
@@ -680,12 +682,17 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 			for _, metric := range d.Metrics {
 				metric.NextAt = d.VT
 			}
-			// Persist recovery and the reset emission schedule atomically.
+			// Persist recovery, its event, and the reset emission schedule atomically.
+			event := Event{Type: "STATUS_CHANGED", Status: "ONLINE", Reason: "RECOVERED"}
+			if _, err := d.appendPendingEventLocked(event); err != nil {
+				rollback()
+				return nil
+			}
 			if err := d.persistRuntimeLocked(); err != nil {
 				rollback()
 				return nil
 			}
-			d.emit(Event{Type: "STATUS_CHANGED", Status: "ONLINE", Reason: "RECOVERED"})
+			d.emit(event)
 		}
 		return nil
 	}
@@ -695,11 +702,16 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		if d.OfflineRng.Next() < p {
 			d.Status = "OFFLINE"
 			d.OfflineUntil = d.VT + 5.0 + d.OfflineRng.Next()*15.0
+			event := Event{Type: "STATUS_CHANGED", Status: "OFFLINE", Reason: "RANDOM"}
+			if _, err := d.appendPendingEventLocked(event); err != nil {
+				rollback()
+				return nil
+			}
 			if err := d.persistRuntimeLocked(); err != nil {
 				rollback()
 				return nil
 			}
-			d.emit(Event{Type: "STATUS_CHANGED", Status: "OFFLINE", Reason: "RANDOM"})
+			d.emit(event)
 			return nil
 		}
 	}
@@ -885,9 +897,19 @@ func (d *Device) ExecuteCommand(raw []byte) (int, map[string]interface{}) {
 	nextRecent[cmdID] = CachedCommand{Status: 200, Body: resBody}
 	nextOrder = append(nextOrder, cmdID)
 
-	// Commit state and command result together before acknowledging execution.
+	// Persist the state, command result, and corresponding event as one snapshot.
+	previousPendingEvents := clonePendingEvents(d.PendingEventBatches)
+	var stateEvent *Event
+	if changed {
+		event := Event{Type: "STATE_CHANGED", State: stateCopy, Cause: map[string]interface{}{"commandId": cmdID}}
+		if _, err := d.appendPendingEventLocked(event); err != nil {
+			return 503, map[string]interface{}{"commandId": cmdID, "status": "REJECTED", "reason": "PENDING_EVENT_QUEUE_FULL"}
+		}
+		stateEvent = &event
+	}
 	if d.Store != nil {
 		if err := d.Store.Save(d.snapshot(nextState, nextRecent, nextOrder)); err != nil {
+			d.PendingEventBatches = previousPendingEvents
 			return 503, map[string]interface{}{
 				"commandId": cmdID,
 				"status":    "REJECTED",
@@ -900,12 +922,8 @@ func (d *Device) ExecuteCommand(raw []byte) (int, map[string]interface{}) {
 	d.Recent = nextRecent
 	d.RecentOrder = nextOrder
 
-	if changed {
-		d.emit(Event{
-			Type:  "STATE_CHANGED",
-			State: stateCopy,
-			Cause: map[string]interface{}{"commandId": cmdID},
-		})
+	if stateEvent != nil {
+		d.emit(*stateEvent)
 	}
 	return 200, resBody
 }
@@ -920,6 +938,7 @@ func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 	if value,exists:=req["durationSec"];exists{number,ok:=value.(float64);if !ok||number<=0||number>86400{return 400,map[string]interface{}{"error":"durationSec must be a number between 0 and 86400"}};duration=&number}
 	durationOrDefault:=func(def float64)float64{if duration!=nil{return *duration};return def}
 	oldStatus,oldOfflineUntil,oldSpike,oldFlood:=d.Status,d.OfflineUntil,d.Spike,d.Flood
+	oldPendingEvents := clonePendingEvents(d.PendingEventBatches)
 	reason:=""
 	switch action {
 	case "OFFLINE":
@@ -937,8 +956,25 @@ func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 		if d.Status=="OFFLINE"{d.Status,d.OfflineUntil="ONLINE",0;reason="FAULT_CLEARED"}
 	default:return 400,map[string]interface{}{"error":fmt.Sprintf("unknown action '%s'",action)}
 	}
-	if err:=d.persistRuntimeLocked();err!=nil{d.Status,d.OfflineUntil,d.Spike,d.Flood=oldStatus,oldOfflineUntil,oldSpike,oldFlood;return 503,map[string]interface{}{"error":"runtime state could not be persisted","reason":"PERSISTENCE_FAILED"}}
-	if reason!=""{if d.Status=="ONLINE"{for _,metric:=range d.Metrics{metric.NextAt=d.VT}};d.emit(Event{Type:"STATUS_CHANGED",Status:d.Status,Reason:reason})}
+	var statusEvent *Event
+	if reason != "" {
+		if d.Status == "ONLINE" {
+			for _, metric := range d.Metrics { metric.NextAt = d.VT }
+		}
+		event := Event{Type:"STATUS_CHANGED",Status:d.Status,Reason:reason}
+		if _, err := d.appendPendingEventLocked(event); err != nil {
+			d.Status,d.OfflineUntil,d.Spike,d.Flood=oldStatus,oldOfflineUntil,oldSpike,oldFlood
+			d.PendingEventBatches = oldPendingEvents
+			return 503,map[string]interface{}{"error":"pending event queue is full","reason":"PENDING_EVENT_QUEUE_FULL"}
+		}
+		statusEvent = &event
+	}
+	if err:=d.persistRuntimeLocked();err!=nil{
+		d.Status,d.OfflineUntil,d.Spike,d.Flood=oldStatus,oldOfflineUntil,oldSpike,oldFlood
+		d.PendingEventBatches = oldPendingEvents
+		return 503,map[string]interface{}{"error":"runtime state could not be persisted","reason":"PERSISTENCE_FAILED"}
+	}
+	if statusEvent != nil { d.emit(*statusEvent) }
 	switch action {
 	case "OFFLINE":return 200,map[string]interface{}{"ok":true,"action":"OFFLINE"}
 	case "SPIKE":result:=map[string]interface{}{"ok":true,"action":"SPIKE"};if d.Spike.Metric!=nil{result["metric"]=*d.Spike.Metric};return 200,result
