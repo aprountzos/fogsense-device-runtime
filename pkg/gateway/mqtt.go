@@ -51,8 +51,8 @@ func (c *Client) startMQTT() {
 		TlsCfg:                        tlsConfig,
 		ServerUrls:                    []*url.URL{u},
 		KeepAlive:                     30,
-		CleanStartOnInitialConnection: true,
-		SessionExpiryInterval:         60,
+		CleanStartOnInitialConnection: false,
+		SessionExpiryInterval:         86400,
 		ConnectUsername:               c.mqttUsername,
 		ConnectPassword:               []byte(c.mqttPassword),
 		ClientConfig: paho.ClientConfig{
