@@ -239,22 +239,17 @@ func (c *Client) handleMQTTRegistrationAck(payload []byte) {
 func (c *Client) handleMQTTCommand(payload []byte) bool {
 	status, response := c.dev.ExecuteCommand(payload)
 	if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
-		// The command was not committed. Let QoS 1 redeliver it rather than
-		// acknowledging an execution result that does not exist durably.
+		// The command was not committed. Leave the broker delivery unacknowledged.
 		return false
 	}
 	var command map[string]interface{}
 	_ = json.Unmarshal(payload, &command)
-	result := map[string]interface{}{
-		"commandId": command["commandId"],
-		"status":    status,
-		"response":  response,
-	}
+	commandID, _ := command["commandId"].(string)
 
-	// Queue the acknowledgement instead of publishing from the receive callback.
-	// This keeps the callback short and lets the normal outbound retry loop deliver
-	// the result after a temporary broker outage.
-	if !c.enqueue("/devices/commands/ack", result) {
+	// Persist the command result in the device database before acknowledging
+	// the inbound broker delivery. The main loop transfers it to the outbox.
+	if _, err := c.dev.QueueCommandAck(commandID, status, response); err != nil {
+		log.Printf("cannot persist MQTT command acknowledgement for %q: %v", commandID, err)
 		return false
 	}
 	c.Kick()

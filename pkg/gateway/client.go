@@ -204,6 +204,15 @@ func (c *Client) Kick() {
 	}
 }
 
+func (c *Client) EnqueueCommandAck(ack device.PendingCommandAck) bool {
+	payload := map[string]interface{}{
+		"commandId": ack.CommandID,
+		"status": ack.Status,
+		"response": ack.Response,
+	}
+	return c.enqueueWithMessageID("/devices/commands/ack", payload, ack.MessageID)
+}
+
 func (c *Client) EnqueueTelemetry(readings []device.Reading, stableMessageID ...string) bool {
 	if len(readings) == 0 {
 		return true

@@ -280,6 +280,19 @@ func main() {
 						break
 					}
 				}
+				for _, ack := range dev.PendingCommandAcks() {
+					if !gwClient.EnqueueCommandAck(ack) {
+						break
+					}
+					if err := dev.AcknowledgeCommandAck(ack.MessageID); err != nil {
+						logJSON("error", "failed to acknowledge command outbox handoff", map[string]interface{}{
+							"messageId": ack.MessageID,
+							"commandId": ack.CommandID,
+							"error": err.Error(),
+						})
+						break
+					}
+				}
 			}
 		}
 	}()
