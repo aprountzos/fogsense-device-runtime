@@ -14,8 +14,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"fogsense-device-runtime/pkg/gatewaystore"
