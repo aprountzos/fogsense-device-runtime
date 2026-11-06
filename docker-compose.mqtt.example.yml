@@ -18,7 +18,7 @@ services:
   mqtt-gateway:
     build: .
     entrypoint: ["fogsense-mock-mqtt-gateway"]
-    command: ["--broker-url", "mqtt://mqtt-broker:1883", "--dedupe-file", "/data/dedupe.json"]
+    command: ["--broker-url", "mqtt://mqtt-broker:1883", "--store-file", "/data/mqtt-gateway.db"]
     depends_on: [mqtt-broker]
     volumes:
       - mqtt-gateway-data:/data
