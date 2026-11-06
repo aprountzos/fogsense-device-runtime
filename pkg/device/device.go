@@ -15,6 +15,7 @@ import (
 const MaxRecent = 1000
 const MaxPendingTelemetry = 500
 const MaxPendingCommandAcks = 1000
+const MaxPendingEvents = 500
 
 func round2(n float64) float64 {
 	return math.Round(n*100) / 100
@@ -79,6 +80,10 @@ type PendingCommandAck struct {
 	Status int `json:"status"`
 	Response map[string]interface{} `json:"response"`
 }
+type PendingEvent struct {
+	MessageID string `json:"messageId"`
+	Event Event `json:"event"`
+}
 type PersistedSpikeFault struct {
 	Metric *string `json:"metric,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
@@ -113,6 +118,7 @@ type Snapshot struct {
 	Telemetry *TelemetrySnapshot `json:"telemetry,omitempty"`
 	PendingTelemetry []PendingTelemetryBatch `json:"pendingTelemetry,omitempty"`
 	PendingCommandAcks []PendingCommandAck `json:"pendingCommandAcks,omitempty"`
+	PendingEvents []PendingEvent `json:"pendingEvents,omitempty"`
 }
 type StateStore interface {
 	Load(deviceID string) (Snapshot, error)
@@ -140,6 +146,7 @@ type Device struct {
 	RecentOrder  []string
 	PendingTelemetryBatches []PendingTelemetryBatch
 	PendingCommandAckBatches []PendingCommandAck
+	PendingEventBatches []PendingEvent
 	Listeners    []func(Event)
 	Store StateStore
 }
@@ -239,6 +246,9 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 		}
 		if err := d.restorePendingCommandAcks(snapshot.PendingCommandAcks); err != nil {
 			return nil, fmt.Errorf("restore pending command acknowledgements: %w", err)
+		}
+		if err := d.restorePendingEvents(snapshot.PendingEvents); err != nil {
+			return nil, fmt.Errorf("restore pending events: %w", err)
 		}
 	}
 	return d, nil
@@ -464,13 +474,78 @@ func (d *Device) AcknowledgeCommandAck(messageID string) error {
 	return nil
 }
 
+func clonePendingEvents(pending []PendingEvent) []PendingEvent {
+	cloned := make([]PendingEvent, len(pending))
+	for i, item := range pending {
+		raw, _ := json.Marshal(item.Event)
+		var event Event
+		_ = json.Unmarshal(raw, &event)
+		cloned[i] = PendingEvent{MessageID: item.MessageID, Event: event}
+	}
+	return cloned
+}
+
+func (d *Device) restorePendingEvents(pending []PendingEvent) error {
+	if len(pending) > MaxPendingEvents {
+		return fmt.Errorf("persisted pending events exceed capacity %d", MaxPendingEvents)
+	}
+	seen := make(map[string]struct{}, len(pending))
+	for _, item := range pending {
+		if item.MessageID == "" || item.Event.Type == "" {
+			return fmt.Errorf("persisted pending event is invalid")
+		}
+		if _, exists := seen[item.MessageID]; exists {
+			return fmt.Errorf("persisted pending events contain duplicate message ID %q", item.MessageID)
+		}
+		seen[item.MessageID] = struct{}{}
+	}
+	d.PendingEventBatches = clonePendingEvents(pending)
+	return nil
+}
+
+func (d *Device) appendPendingEventLocked(event Event) (string, error) {
+	if len(d.PendingEventBatches) >= MaxPendingEvents {
+		return "", fmt.Errorf("pending event queue is full")
+	}
+	messageID := generateUUID()
+	d.PendingEventBatches = append(d.PendingEventBatches, PendingEvent{MessageID: messageID, Event: event})
+	return messageID, nil
+}
+
+func (d *Device) PendingEvents() []PendingEvent {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return clonePendingEvents(d.PendingEventBatches)
+}
+
+func (d *Device) AcknowledgeEvent(messageID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	index := -1
+	for i, item := range d.PendingEventBatches {
+		if item.MessageID == messageID { index = i; break }
+	}
+	if index < 0 { return nil }
+	previous := d.PendingEventBatches
+	next := append([]PendingEvent(nil), previous[:index]...)
+	next = append(next, previous[index+1:]...)
+	d.PendingEventBatches = next
+	if d.Store != nil {
+		if err := d.Store.Save(d.snapshot(d.State, d.Recent, d.RecentOrder)); err != nil {
+			d.PendingEventBatches = previous
+			return fmt.Errorf("persist event handoff: %w", err)
+		}
+	}
+	return nil
+}
+
 func (d *Device) persistRuntimeLocked() error { if d.Store==nil{return nil}; return d.Store.Save(d.snapshot(d.State,d.Recent,d.RecentOrder)) }
 func (d *Device) snapshot(state map[string]interface{}, recent map[string]CachedCommand, order []string) Snapshot {
 	records := make([]CommandRecord, 0, len(order))
 	for _, id := range order {
 		if c, ok := recent[id]; ok { records = append(records, CommandRecord{ID:id, Status:c.Status, Body:c.Body}) }
 	}
-	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot(), PendingTelemetry:clonePendingTelemetry(d.PendingTelemetryBatches), PendingCommandAcks:clonePendingCommandAcks(d.PendingCommandAckBatches)}
+	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot(), PendingTelemetry:clonePendingTelemetry(d.PendingTelemetryBatches), PendingCommandAcks:clonePendingCommandAcks(d.PendingCommandAckBatches), PendingEvents:clonePendingEvents(d.PendingEventBatches)}
 }
 
 func (d *Device) OnEvent(fn func(Event)) {
@@ -888,6 +963,7 @@ func (d *Device) ControlStatus() map[string]interface{} {
 		"offlineUntil":  offUntil,
 		"pendingTelemetryBatches": len(d.PendingTelemetryBatches),
 		"pendingCommandAcks": len(d.PendingCommandAckBatches),
+		"pendingEvents": len(d.PendingEventBatches),
 		"spike":         d.Spike,
 		"flood":         d.Flood,
 	}
