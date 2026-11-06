@@ -63,12 +63,15 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml
 | `MQTT_CLIENT_CERT_FILE` | _(none)_ | Optional client certificate for mutual TLS; set with key |
 | `MQTT_CLIENT_KEY_FILE` | _(none)_ | Optional client private key for mutual TLS; set with certificate |
 | `OUTBOX_PATH` | `data/outbox-<DEVICE_ID>.json` | Persistent HTTP/MQTT outbound outbox file |
+| `DEVICE_STATE_PATH` | `data/device-state-<DEVICE_ID>.db` | SQLite database for declared state, command idempotency, runtime faults, and telemetry checkpoints |
 | `ADVERTISE_URL` | `http://<hostname>:<PORT>` | URL the gateway uses to reach this device. Override when the hostname isn't routable (e.g., Docker) |
 | `PORT` | `8080` | HTTP port for the device API |
 | `REGISTER_INTERVAL_SEC` | `30` | Seconds between heartbeat registrations |
 | `TIME_SCALE` | `1` | Device time multiplier (0 to 1000]. `10` means device time runs 10x faster |
 | `SEED` | _(random)_ | Integer seed for the PRNG. Same seed = same telemetry values |
 | `CONTROL_TOKEN` | _(none)_ | Enables the instructor Control API (`/control/*`). Requires `X-Control-Token` header |
+
+Keep both `DEVICE_STATE_PATH` and `OUTBOX_PATH` on persistent storage. The device database checkpoints telemetry when readings are generated; it does not write on every simulation tick.
 
 ## Startup Validation
 

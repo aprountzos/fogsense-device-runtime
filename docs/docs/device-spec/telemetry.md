@@ -81,6 +81,18 @@ follows:
 - `follows.rate` defaults to `0.15` if omitted
 :::
 
+## Telemetry Persistence
+
+When a device state database is configured, each telemetry emission is checkpointed to SQLite **before** the readings are returned to the transport layer. The checkpoint includes:
+
+- The current random-walk value (`x`) and next emission time for every metric
+- The last reading for each metric
+- The Mulberry32 generator state used by telemetry sampling
+
+This allows a restarted process to continue the telemetry sequence instead of reinitializing metric progression and random sampling. Checkpoints occur when readings are generated, not on every 250 ms simulation tick. Runtime state and command updates also include the latest telemetry checkpoint.
+
+If a checkpoint cannot be committed, the tick is rolled back in memory and its readings are not handed to the transport layer. Keep the `DEVICE_STATE_PATH` database on persistent storage to retain this behavior across container restarts.
+
 ## Telemetry Delivery
 
 Each telemetry reading is sent to the gateway as part of a batch:

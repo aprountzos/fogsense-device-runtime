@@ -55,15 +55,17 @@ TIME_SCALE=10 go run .  # 60s of device time passes in 6s of real time
 `TIME_SCALE` must be between 0 (exclusive) and 1000 (inclusive).
 :::
 
-## Reproducibility
+## Reproducibility and restart recovery
 
-The simulation uses the **Mulberry32** pseudo-random number generator (PRNG). Setting the `SEED` environment variable produces deterministic, reproducible output:
+The simulation uses the **Mulberry32** pseudo-random number generator (PRNG). Setting the `SEED` environment variable makes a new device's initial telemetry sequence reproducible:
 
 ```bash
-SEED=42 go run .  # always generates the same sequence of values
+SEED=42 go run .
 ```
 
-When no seed is provided, a random seed is generated at startup.
+When no seed is provided, a random seed is generated at startup. Once a device has a persisted telemetry checkpoint, the saved generator state takes precedence over the startup seed. The current metric values, next emission times, and last readings are restored alongside it.
+
+Telemetry checkpoints are written when a metric emission is generated, not on every 250 ms tick. This avoids continuous database writes while preserving the generator's position at each emitted batch. Virtual time resumes from the latest persisted checkpoint; time spent stopped does not advance metric schedules.
 
 ## Internal State
 

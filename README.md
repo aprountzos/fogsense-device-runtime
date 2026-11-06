@@ -409,7 +409,7 @@ go run .
 
 ## What it is not
 
-Declared state, command idempotency history, and active fault-injection controls persist locally. Telemetry generator internals (metric progression and random generator position) still restart from their initial configuration. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
+Declared state, command idempotency history, active fault-injection controls, and telemetry generator checkpoints persist locally. Metric progression, next emission times, last readings, and the telemetry PRNG state are checkpointed when readings are generated, not on every 250 ms simulation tick. Keep `DEVICE_STATE_PATH` on persistent storage. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
 
 ## Contributing & Community
 
