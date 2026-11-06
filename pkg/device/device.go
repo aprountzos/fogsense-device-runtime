@@ -560,21 +560,6 @@ func (d *Device) emit(evt Event) {
 	}
 }
 
-func (d *Device) goOffline(durationSec float64, reason string) {
-	d.Status = "OFFLINE"
-	d.OfflineUntil = d.VT + durationSec
-	d.emit(Event{Type: "STATUS_CHANGED", Status: "OFFLINE", Reason: reason})
-}
-
-func (d *Device) goOnline(reason string) {
-	d.Status = "ONLINE"
-	d.OfflineUntil = 0
-	for _, m := range d.Metrics {
-		m.NextAt = d.VT
-	}
-	d.emit(Event{Type: "STATUS_CHANGED", Status: "ONLINE", Reason: reason})
-}
-
 func (d *Device) followTarget(def spec.MetricSpec) *float64 {
 	if def.Follows == nil {
 		return nil
