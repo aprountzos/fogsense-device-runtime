@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,17 +10,29 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"fogsense-device-runtime/pkg/gatewaystore"
 )
 
-func resetGatewayTestState(path string) {
+func resetGatewayTestState(t *testing.T, path string) {
+	t.Helper()
+	if gatewayStore != nil {
+		_ = gatewayStore.Close()
+		gatewayStore = nil
+	}
 	mu.Lock()
-	defer mu.Unlock()
 	devices = make(map[string]*DeviceRecord)
-	seenMessages = make(map[string]bool)
 	dedupeFile = path
 	deviceToken = ""
-	dedupeHealthy.Store(true)
 	quiet = true
+	mu.Unlock()
+	store, err := gatewaystore.Open(path)
+	if err != nil {
+		dedupeHealthy.Store(false)
+		return
+	}
+	gatewayStore = store
+	dedupeHealthy.Store(true)
 }
 
 func postGatewayJSON(t *testing.T, h http.Handler, path string, body interface{}) *httptest.ResponseRecorder {
@@ -53,22 +66,25 @@ func registerTestDevice(t *testing.T, h http.Handler) {
 	}
 }
 
+func telemetryTestMessage(ts string) map[string]interface{} {
+	return map[string]interface{}{
+		"deviceId": "light-1",
+		"bootId": "boot-1",
+		"messageId": "message-1",
+		"seq": 1,
+		"ts": ts,
+		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 22.5, "ts": ts}},
+	}
+}
+
 func TestHTTPGatewayAcknowledgesAndDeduplicatesStableMessageID(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "gateway", "dedupe.json")
-	resetGatewayTestState(path)
+	path := filepath.Join(t.TempDir(), "gateway", "gateway.db")
+	resetGatewayTestState(t, path)
+	defer gatewayStore.Close()
 	h := handler()
 	registerTestDevice(t, h)
 
-	ts := time.Now().UTC().Format(time.RFC3339Nano)
-	message := map[string]interface{}{
-		"deviceId": "light-1",
-		"bootId":   "boot-1",
-		"messageId": "message-1",
-		"seq":      1,
-		"ts":       ts,
-		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 22.5, "ts": ts}},
-	}
-
+	message := telemetryTestMessage(time.Now().UTC().Format(time.RFC3339Nano))
 	first := postGatewayJSON(t, h, "/devices/light-1/telemetry", message)
 	if first.Code != http.StatusOK {
 		t.Fatalf("first telemetry status = %d, want 200: %s", first.Code, first.Body.String())
@@ -91,39 +107,37 @@ func TestHTTPGatewayAcknowledgesAndDeduplicatesStableMessageID(t *testing.T) {
 	if rec == nil || rec.TelemetryCount != 1 || rec.Duplicates != 1 {
 		t.Fatalf("device record = %+v, want one telemetry and one duplicate", rec)
 	}
-	loaded, err := loadSeenMessages(path)
+	stored, err := gatewayStore.Get(context.Background(), "light-1", "message-1")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("accepted payload was not persisted: %v", err)
 	}
-	if !loaded["light-1:message-1"] {
-		t.Fatal("accepted message ID was not persisted before HTTP acknowledgement")
+	if stored.Kind != "telemetry" || !bytes.Contains(stored.Payload, []byte("temperature")) {
+		t.Fatalf("stored message = %+v, want telemetry payload", stored)
 	}
 }
 
-func TestHTTPGatewayDeduplicationSurvivesGatewayRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "gateway", "dedupe.json")
-	resetGatewayTestState(path)
+func TestHTTPGatewayDeduplicationAndPayloadSurviveGatewayRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway", "gateway.db")
+	resetGatewayTestState(t, path)
 	firstHandler := handler()
 	registerTestDevice(t, firstHandler)
 
-	ts := time.Now().UTC().Format(time.RFC3339Nano)
-	message := map[string]interface{}{
-		"deviceId": "light-1", "bootId": "boot-1", "messageId": "message-replayed",
-		"seq": 1, "ts": ts,
-		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 20.0, "ts": ts}},
-	}
+	message := telemetryTestMessage(time.Now().UTC().Format(time.RFC3339Nano))
 	if res := postGatewayJSON(t, firstHandler, "/devices/light-1/telemetry", message); res.Code != http.StatusOK {
 		t.Fatalf("initial telemetry status = %d: %s", res.Code, res.Body.String())
 	}
 
-	recovered, err := loadSeenMessages(path)
+	if err := gatewayStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gatewayStore = nil
+	devices = make(map[string]*DeviceRecord)
+	store, err := gatewaystore.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
-	devices = make(map[string]*DeviceRecord)
-	seenMessages = recovered
-	mu.Unlock()
+	gatewayStore = store
+	dedupeHealthy.Store(true)
 
 	secondHandler := handler()
 	registerTestDevice(t, secondHandler)
@@ -138,24 +152,26 @@ func TestHTTPGatewayDeduplicationSurvivesGatewayRestart(t *testing.T) {
 	if response["duplicate"] != true {
 		t.Fatalf("replay response = %v, want duplicate=true", response)
 	}
+	stored, err := gatewayStore.Get(context.Background(), "light-1", "message-1")
+	if err != nil {
+		t.Fatalf("payload missing after restart: %v", err)
+	}
+	if !bytes.Contains(stored.Payload, []byte("temperature")) {
+		t.Fatalf("recovered payload = %s", stored.Payload)
+	}
 }
 
-func TestHTTPGatewayDoesNotAcknowledgeWhenDedupeStoreIsUnavailable(t *testing.T) {
+func TestHTTPGatewayDoesNotAcknowledgeWhenStoreIsUnavailable(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "not-a-directory")
 	if err := os.WriteFile(blocker, []byte("block"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(blocker, "dedupe.json")
-	resetGatewayTestState(path)
+	path := filepath.Join(blocker, "gateway.db")
+	resetGatewayTestState(t, path)
 	h := handler()
 	registerTestDevice(t, h)
 
-	ts := time.Now().UTC().Format(time.RFC3339Nano)
-	message := map[string]interface{}{
-		"deviceId": "light-1", "bootId": "boot-1", "messageId": "message-no-disk",
-		"seq": 1, "ts": ts,
-		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 20.0, "ts": ts}},
-	}
+	message := telemetryTestMessage(time.Now().UTC().Format(time.RFC3339Nano))
 	for attempt := 0; attempt < 2; attempt++ {
 		res := postGatewayJSON(t, h, "/devices/light-1/telemetry", message)
 		if res.Code != http.StatusServiceUnavailable {
@@ -165,6 +181,6 @@ func TestHTTPGatewayDoesNotAcknowledgeWhenDedupeStoreIsUnavailable(t *testing.T)
 	health := httptest.NewRecorder()
 	h.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if health.Code != http.StatusServiceUnavailable {
-		t.Fatalf("health status = %d, want 503 while dedupe storage is unavailable", health.Code)
+		t.Fatalf("health status = %d, want 503 while message storage is unavailable", health.Code)
 	}
 }
