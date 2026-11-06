@@ -340,6 +340,7 @@ docker compose -f docker-compose.example.yml up --build
 | `REGISTER_INTERVAL_SEC` | no | Heartbeat registration period; default `30` |
 | `TIME_SCALE` | no | Device time speed-up factor for testing; default `1` |
 | `SEED` | no | Integer used for reproducible data generation |
+| `DEVICE_STATE_PATH` | no | SQLite database for durable device state and command idempotency (default `data/device-state-<DEVICE_ID>.db`) |
 
 If the spec is invalid, the container does not start. It prints all errors (with paths) as JSON lines and exits with code `2`.
 
@@ -347,7 +348,7 @@ If the spec is invalid, the container does not start. It prints all errors (with
 
 **Telemetry.** Each metric produces a value every `intervalSec` seconds: a random walk within `[min, max]` plus Gaussian noise (`noise`). With probability `anomalyRate`, the value goes out of range.
 
-**State and commands.** A command validates its parameters, applies its effects, and returns the new state. Commands are idempotent by `commandId`. If the state changed, the device also sends a `STATE_CHANGED` event.
+**State and commands.** A command validates its parameters, applies its effects, and returns the new state. Declared device state and the last 1,000 command results are committed together to the local SQLite database before a successful response is returned. Replaying a `commandId` after restart returns the original result without reapplying effects. If persistence fails, the command is not applied and the device returns `503 PERSISTENCE_FAILED`; retry with the same ID. Keep `DEVICE_STATE_PATH` on persistent storage. A corrupt, incompatible, or wrong-device snapshot stops startup rather than resetting state. If the state changed, the device also sends a `STATE_CHANGED` event.
 
 **OFFLINE.** With probability `offlineRate` per second, the device goes offline for a few seconds. It first sends `STATUS_CHANGED(OFFLINE)` and then goes silent: no telemetry, no heartbeat, and commands are not processed until it returns online.
 
@@ -408,7 +409,7 @@ go run .
 
 ## What it is not
 
-It does not persist anything; each restart begins from the initial state. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
+Declared device state and command idempotency history persist locally; telemetry generator internals and active fault-injection timers still reset on restart. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
 
 ## Contributing & Community
 

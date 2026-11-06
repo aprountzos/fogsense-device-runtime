@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"fogsense-device-runtime/pkg/device"
+	"fogsense-device-runtime/pkg/devicestore"
 	"fogsense-device-runtime/pkg/gateway"
 	"fogsense-device-runtime/pkg/server"
 	"fogsense-device-runtime/pkg/spec"
@@ -189,13 +190,18 @@ func main() {
 		fatal(fmt.Sprintf("device spec has %d error(s), refusing to start", len(valRes.Errors)), nil)
 	}
 
-	// Initialize Device Engine
-	dev := device.NewDevice(device.Config{
-		DeviceID:  deviceID,
-		Spec:      valRes.Spec,
-		Seed:      seedPtr,
-		TimeScale: timeScale,
+	// Initialize durable device state and command idempotency storage.
+	statePath := strings.TrimSpace(os.Getenv("DEVICE_STATE_PATH"))
+	if statePath == "" { statePath = filepath.Join("data", "device-state-"+deviceID+".db") }
+	stateStore, err := devicestore.Open(statePath)
+	if err != nil { fatal("cannot initialize persistent device state", map[string]interface{}{"error":err.Error(),"statePath":statePath}) }
+	defer stateStore.Close()
+
+	// A corrupt or incompatible snapshot must stop startup; never reset it silently.
+	dev, err := device.NewDeviceWithError(device.Config{
+		DeviceID:deviceID, Spec:valRes.Spec, Seed:seedPtr, TimeScale:timeScale, Store:stateStore,
 	})
+	if err != nil { fatal("cannot restore persistent device state", map[string]interface{}{"error":err.Error(),"statePath":statePath}) }
 
 	// Initialize Gateway Client
 	gwClient := gateway.NewClient(gateway.Config{
@@ -292,6 +298,7 @@ func main() {
 			"gateway":          gatewayURL,
 			"mqttBroker":       mqttBrokerURL,
 			"outboxPath":       outboxPath,
+			"deviceStatePath": statePath,
 			"timeScale": timeScale,
 			"gatewayAuth": gatewayAuthState,
 			"deviceAPIAuth": deviceAPIAuthState,
