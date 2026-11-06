@@ -51,7 +51,7 @@ Telemetry and event payloads retain the existing HTTP envelope:
 - `ts`: UTC RFC3339Nano timestamp
 - `messageId`: stable UUID generated once when enqueued and preserved across retries and process restarts
 
-QoS 1 is at-least-once broker delivery, not gateway application acceptance. The device retains each message in its persistent outbox until it receives a matching `delivery/ack` with `accepted: true`. The gateway must tolerate duplicates and deduplicate using `(deviceId, messageId)`. `bootId` and `seq` remain diagnostic and ordering fields; the device rebinds recovered messages to its current boot while preserving their original messageId and sequence.
+QoS 1 is at-least-once broker delivery, not gateway application acceptance. The device retains each message in its persistent outbox until it receives a matching `delivery/ack` with `accepted: true`. The gateway must tolerate duplicates and deduplicate using `(deviceId, messageId)`. `bootId` and `seq` remain diagnostic and ordering fields; the device rebinds recovered messages to its current boot while preserving their original messageId and sequence. The reference MQTT gateway commits each accepted telemetry, event, or command-ack payload and its deduplication key in one SQLite transaction before publishing the application acknowledgement. Its database defaults to `data/mqtt-gateway.db`; override it with `--store-file` and retain the containing volume across restarts.
 
 ## Commands
 
