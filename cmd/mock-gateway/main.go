@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"sync"
 	"time"
+
+	"fogsense-device-runtime/pkg/gatewaystore"
 )
 
 type DeviceRecord struct {
@@ -39,12 +41,12 @@ type DeviceRecord struct {
 }
 
 var (
-	mu          sync.Mutex
-	devices     = make(map[string]*DeviceRecord)
-	seenMessages = make(map[string]bool)
-	quiet       bool
-	deviceToken string
-	dedupeFile string
+	mu            sync.Mutex
+	devices       = make(map[string]*DeviceRecord)
+	gatewayStore  *gatewaystore.Store
+	quiet         bool
+	deviceToken   string
+	dedupeFile    string
 	dedupeHealthy atomic.Bool
 )
 
@@ -382,37 +384,39 @@ func handler() http.Handler {
 			bootID, _ := body["bootId"].(string)
 			seq := toInt64(body["seq"])
 			messageID, _ := body["messageId"].(string)
-			dedupeKey := devID + ":" + messageID
 
 			mu.Lock()
-			if seenMessages[dedupeKey] {
-				if rec, exists := devices[devID]; exists {
-					rec.Duplicates++
-				}
-				mu.Unlock()
-				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
-				return
-			}
 			rec, exists := devices[devID]
 			if !exists || rec.BootID != bootID {
 				mu.Unlock()
 				sendJSON(w, http.StatusNotFound, map[string]string{"error": "UNREGISTERED"})
 				return
 			}
-
+			if gatewayStore == nil {
+				dedupeHealthy.Store(false)
+				mu.Unlock()
+				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+				return
+			}
+			duplicate, err := gatewayStore.Accept(r.Context(), devID, messageID, kind, body)
+			if err != nil {
+				dedupeHealthy.Store(false)
+				mu.Unlock()
+				logMsg("failed to persist %s %s/%s: %v", kind, devID, messageID, err)
+				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+				return
+			}
+			dedupeHealthy.Store(true)
+			if duplicate {
+				rec.Duplicates++
+				mu.Unlock()
+				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
+				return
+			}
 			if rec.Seen[seq] {
 				rec.Duplicates++
-				seenMessages[dedupeKey] = true
-				if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
-					dedupeHealthy.Store(false)
-					delete(seenMessages, dedupeKey)
-					mu.Unlock()
-					sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
-					return
-				}
-				dedupeHealthy.Store(true)
 				mu.Unlock()
-				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true})
+				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
 				return
 			}
 
@@ -456,14 +460,6 @@ func handler() http.Handler {
 					stateBytes, _ := json.Marshal(body["state"])
 					logMsg("EVENT %s seq=%d STATE_CHANGED %s", devID, seq, string(stateBytes))
 				}
-			}
-			seenMessages[dedupeKey] = true
-			if err := saveSeenMessages(dedupeFile, seenMessages); err != nil {
-				dedupeHealthy.Store(false)
-				delete(seenMessages, dedupeKey)
-				mu.Unlock()
-				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
-				return
 			}
 			dedupeHealthy.Store(true)
 			mu.Unlock()
@@ -950,18 +946,16 @@ func runChecks(port int, devToken, ctrlToken, overrideDevURL string, timeoutSec 
 }
 
 func main() {
-	dedupeFile = os.Getenv("GATEWAY_DEDUPE_FILE")
+	dedupeFile = os.Getenv("GATEWAY_STORE_PATH")
 	if dedupeFile == "" {
-		dedupeFile = filepath.Join("data", "gateway-dedupe.json")
+		dedupeFile = filepath.Join("data", "gateway.db")
 	}
-	loadedMessages, err := loadSeenMessages(dedupeFile)
+	var err error
+	gatewayStore, err = gatewaystore.Open(dedupeFile)
 	if err != nil {
-		log.Fatalf("load gateway deduplication store: %v", err)
+		log.Fatalf("open gateway message store: %v", err)
 	}
-	seenMessages = loadedMessages
-	if err := initializeSeenMessages(dedupeFile, seenMessages); err != nil {
-		log.Fatalf("initialize gateway deduplication store: %v", err)
-	}
+	defer gatewayStore.Close()
 	dedupeHealthy.Store(true)
 
 	port := flag.Int("port", 8081, "listen port")
