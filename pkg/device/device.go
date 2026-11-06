@@ -296,11 +296,19 @@ func (d *Device) restorePendingTelemetry(pending []PendingTelemetryBatch) error 
 			return fmt.Errorf("persisted pending telemetry contains duplicate message ID %q", batch.MessageID)
 		}
 		seen[batch.MessageID] = struct{}{}
+		if len(batch.Readings) > len(d.Metrics) {
+			return fmt.Errorf("persisted pending telemetry batch exceeds the configured metric count")
+		}
+		seenMetrics := make(map[string]struct{}, len(batch.Readings))
 		for _, reading := range batch.Readings {
 			metric, ok := d.Metrics[reading.Metric]
 			if !ok || reading.Unit != metric.Def.Unit || math.IsNaN(reading.Value) || math.IsInf(reading.Value, 0) {
 				return fmt.Errorf("persisted pending telemetry contains an invalid reading for metric %q", reading.Metric)
 			}
+			if _, exists := seenMetrics[reading.Metric]; exists {
+				return fmt.Errorf("persisted pending telemetry contains duplicate readings for metric %q", reading.Metric)
+			}
+			seenMetrics[reading.Metric] = struct{}{}
 			if _, err := time.Parse(time.RFC3339Nano, reading.TS); err != nil {
 				return fmt.Errorf("persisted pending telemetry has an invalid timestamp: %w", err)
 			}
