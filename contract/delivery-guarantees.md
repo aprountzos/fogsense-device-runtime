@@ -71,11 +71,11 @@ The local device HTTP API is a separate security boundary from the device-to-gat
    - Remaining hardening: cross-process file locking, configurable capacity/retention, disk-full fault tests, and stronger filesystem portability validation.
 
 2. **Gateway acceptance and deduplication — implemented in the reference gateways; production transaction boundary remains**
-   - HTTP 2xx is treated as application acceptance. The reference HTTP gateway persists accepted `(deviceId, messageId)` keys before returning success.
+   - HTTP 2xx is treated as application acceptance. The reference HTTP gateway commits the accepted payload and `(deviceId, messageId)` key together in SQLite before returning success.
    - MQTT QoS 1 PUBACK is not treated as application acceptance. The device waits for `fogsense/v1/devices/{deviceId}/delivery/ack` with a matching `messageId` and `accepted: true`.
-   - The reference MQTT gateway persists accepted message IDs before publishing the application acknowledgement.
-   - Both reference gateways deduplicate by `(deviceId, messageId)`.
-   - Production gateways must atomically persist the business message and its deduplication key in one transaction. The mock gateways persist deduplication keys, but their demonstration telemetry/event state is not a transactional production data store.
+   - The reference MQTT gateway commits the accepted payload and deduplication key together in the same SQLite store before publishing the application acknowledgement.
+   - Both reference gateways use the shared `pkg/gatewaystore` implementation and deduplicate by `(deviceId, messageId)`.
+   - The durable accepted-message journal is transactional. The mock gateways' in-memory device aggregates/debug views are still demonstration state and are not rebuilt from the journal after restart; production consumers should project the journal into their durable business store.
 
 3. **Production security profiles — implemented for MQTT examples; HTTP deployment guidance remains**
    - MQTT supports system trust or a custom `MQTT_CA_FILE`, per-device username/password, and optional client certificate/key for mutual TLS.
@@ -101,6 +101,6 @@ The local device HTTP API is a separate security boundary from the device-to-gat
 - Delivery is **at least once**, not exactly once. Consumers must be idempotent.
 - The device outbox is durable only when its file or mounted volume survives container replacement. Deleting a named volume deletes pending messages.
 - One runtime process must own a given device outbox path; do not mount the same file into multiple replicas.
-- The reference gateway deduplication stores persist accepted message IDs, but are not substitutes for a production database transaction that stores the actual telemetry/event/command result and its deduplication key together.
+- The reference gateways persist accepted telemetry, events, and command acknowledgements together with their deduplication keys in SQLite. Their in-memory device aggregates/debug views are not yet reconstructed from that journal after restart.
 - The local anonymous Mosquitto profile is for development only. Use the secure profile or an appropriately managed broker in production. The HTTP mock gateway accepts one shared demo token; production gateways must provision and verify unique per-device credentials.
 - The local HTTP device API remains a separate security boundary from the gateway transport.
