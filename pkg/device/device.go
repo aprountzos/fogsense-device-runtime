@@ -443,9 +443,58 @@ func (d *Device) ExecuteCommand(raw []byte) (int, map[string]interface{}) {
 	}
 
 	nextState := make(map[string]interface{}, len(d.State))
-	for k, v := range d.State { nextState[k] = v }
+	for k, v := range d.State {
+		nextState[k] = v
+	}
 	for field, val := range targetCmd.Effects {
-		if strVal, isStr := val.(string); isStr && len(strVal) > 1 && strVal[0] == '
+		if strVal, isStr := val.(string); isStr && len(strVal) > 1 && strVal[0] == '$' {
+			nextState[field] = params[strVal[1:]]
+		} else {
+			nextState[field] = val
+		}
+	}
+	beforeBytes, _ := json.Marshal(d.State)
+	afterBytes, _ := json.Marshal(nextState)
+	changed := string(beforeBytes) != string(afterBytes)
+
+	stateCopy := make(map[string]interface{})
+	for k, v := range nextState {
+		stateCopy[k] = v
+	}
+	resBody := map[string]interface{}{
+		"commandId": cmdID,
+		"status":    "EXECUTED",
+		"state":     stateCopy,
+		"changed":   changed,
+	}
+
+	nextRecent := make(map[string]CachedCommand, len(d.Recent)+1)
+	for id, cached := range d.Recent {
+		nextRecent[id] = cached
+	}
+	nextOrder := append([]string(nil), d.RecentOrder...)
+	if len(nextOrder) >= MaxRecent {
+		delete(nextRecent, nextOrder[0])
+		nextOrder = nextOrder[1:]
+	}
+	nextRecent[cmdID] = CachedCommand{Status: 200, Body: resBody}
+	nextOrder = append(nextOrder, cmdID)
+
+	// Commit state and command result together before acknowledging execution.
+	if d.Store != nil {
+		if err := d.Store.Save(d.snapshot(nextState, nextRecent, nextOrder)); err != nil {
+			return 503, map[string]interface{}{
+				"commandId": cmdID,
+				"status":    "REJECTED",
+				"reason":    "PERSISTENCE_FAILED",
+				"message":   "command result could not be persisted; retry with the same commandId",
+			}
+		}
+	}
+	d.State = nextState
+	d.Recent = nextRecent
+	d.RecentOrder = nextOrder
+
 	if changed {
 		d.emit(Event{
 			Type:  "STATE_CHANGED",
@@ -453,8 +502,7 @@ func (d *Device) ExecuteCommand(raw []byte) (int, map[string]interface{}) {
 			Cause: map[string]interface{}{"commandId": cmdID},
 		})
 	}
-
-	return status, savedBody
+	return 200, resBody
 }
 
 func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
