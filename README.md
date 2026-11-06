@@ -358,7 +358,7 @@ If the spec is invalid, the container does not start. It prints all errors (with
 
 **OFFLINE.** With probability `offlineRate` per second, the device goes offline for a few seconds. It first sends `STATUS_CHANGED(OFFLINE)` and then goes silent: no telemetry, no heartbeat, and commands are not processed until it returns online.
 
-**Reliability toward the gateway.** Every outbound message carries a stable `messageId` plus `(bootId, seq)` and remains in a disk-backed, 500-message outbox until the gateway application acknowledges it. HTTP and MQTT share the same outbox. Telemetry additionally remains in a device-side SQLite pending queue until it is durably handed to the outbox; both queues apply backpressure instead of silently discarding pending telemetry.
+**Reliability toward the gateway.** Every outbound message carries a stable `messageId` plus `(bootId, seq)` and remains in a disk-backed, 500-message outbox until the gateway application acknowledges it. HTTP and MQTT share the same outbox. Telemetry batches, state/status events, and MQTT command acknowledgements also remain in device-side SQLite pending queues until durably handed to the outbox. Pending queues retain stable message IDs across a crash during handoff; telemetry sampling and state-changing operations apply backpressure rather than silently discarding required messages.
 
 All durations are in device time unless `TIME_SCALE` is set.
 
