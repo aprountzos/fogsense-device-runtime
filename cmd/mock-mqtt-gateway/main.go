@@ -15,13 +15,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/paho"
+
+	"fogsense-device-runtime/pkg/gatewaystore"
 )
 
 func validateMQTTDeliveryMessage(payload map[string]interface{}, topic, prefix string) (string, string, string) {
@@ -102,7 +103,9 @@ func main() {
 	clientCertFile := flag.String("client-cert-file", os.Getenv("MQTT_GATEWAY_CLIENT_CERT_FILE"), "optional MQTT client certificate for mutual TLS")
 	clientKeyFile := flag.String("client-key-file", os.Getenv("MQTT_GATEWAY_CLIENT_KEY_FILE"), "optional MQTT client private key for mutual TLS")
 	prefix := flag.String("topic-prefix", "fogsense/v1/devices", "device topic prefix")
-	dedupeFile := flag.String("dedupe-file", filepath.Join("data", "mqtt-gateway-dedupe.json"), "persistent message ID deduplication file")
+	storePath := filepath.Join("data", "mqtt-gateway.db")
+	storeFile := flag.String("store-file", storePath, "SQLite database for accepted MQTT messages")
+	flag.StringVar(storeFile, "dedupe-file", storePath, "deprecated alias for --store-file")
 	healthPort := flag.Int("health-port", 8081, "HTTP health endpoint port")
 	flag.Parse()
 
@@ -139,13 +142,14 @@ func main() {
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	var seenMu sync.Mutex
 	var ready atomic.Bool
 	var dedupeHealthy atomic.Bool
 	var subscribing atomic.Bool
-	seenMessages, err := loadMQTTSeen(*dedupeFile)
-	if err != nil { log.Fatalf("load MQTT deduplication store: %v", err) }
-	if err := initializeMQTTSeen(*dedupeFile, seenMessages); err != nil { log.Fatalf("initialize MQTT deduplication store: %v", err) }
+	messageStore, err := gatewaystore.Open(*storeFile)
+	if err != nil {
+		log.Fatalf("open MQTT gateway message store: %v", err)
+	}
+	defer messageStore.Close()
 	dedupeHealthy.Store(true)
 	healthMux := http.NewServeMux()
 	healthMux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -240,21 +244,16 @@ func main() {
 								}
 								return true, nil
 							}
-							dedupeKey := deviceID + ":" + messageID
-							seenMu.Lock()
-							duplicate := seenMessages[dedupeKey]
-							if !duplicate {
-								seenMessages[dedupeKey] = true
-								if err := saveMQTTSeen(*dedupeFile, seenMessages); err != nil {
-									dedupeHealthy.Store(false)
-									delete(seenMessages, dedupeKey)
-									seenMu.Unlock()
-									log.Printf("cannot persist message acceptance for %s: %v", messageID, err)
-									return true, nil
-								}
-								dedupeHealthy.Store(true)
+							relativeTopic := strings.TrimPrefix(strings.Trim(received.Packet.Topic, "/"), strings.TrimRight(*prefix, "/")+"/")
+							topicParts := strings.Split(relativeTopic, "/")
+							kind := strings.Join(topicParts[1:], "/")
+							duplicate, err := messageStore.Accept(ctx, deviceID, messageID, kind, payload)
+							if err != nil {
+								dedupeHealthy.Store(false)
+								log.Printf("cannot persist %s message %s from %s: %v", kind, messageID, deviceID, err)
+								return true, nil
 							}
-							seenMu.Unlock()
+							dedupeHealthy.Store(true)
 							if duplicate {
 								log.Printf("duplicate MQTT message %s from %s; acknowledging without reprocessing", messageID, deviceID)
 							}
