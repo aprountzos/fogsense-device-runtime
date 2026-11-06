@@ -14,6 +14,12 @@ func NewMulberry32(seed uint32) *Mulberry32 {
 	return &Mulberry32{state: seed}
 }
 
+// State returns the current generator state for durable checkpoints.
+func (m *Mulberry32) State() uint32 { return m.state }
+
+// Restore sets the generator state from a previously saved checkpoint.
+func (m *Mulberry32) Restore(state uint32) { m.state = state }
+
 // Next returns a pseudo-random float64 in [0, 1).
 func (m *Mulberry32) Next() float64 {
 	m.state += 0x6d2b79f5

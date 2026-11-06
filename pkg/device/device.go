@@ -82,12 +82,22 @@ type RuntimeSnapshot struct {
 	Spike *PersistedSpikeFault `json:"spike,omitempty"`
 	Flood *PersistedFloodFault `json:"flood,omitempty"`
 }
+type PersistedMetricRuntime struct {
+	X float64 `json:"x"`
+	NextAt float64 `json:"nextAt"`
+	Last *Reading `json:"last,omitempty"`
+}
+type TelemetrySnapshot struct {
+	RNGState uint32 `json:"rngState"`
+	Metrics map[string]PersistedMetricRuntime `json:"metrics"`
+}
 type Snapshot struct {
 	Version int `json:"version"`
 	DeviceID string `json:"deviceId"`
 	State map[string]interface{} `json:"state"`
 	Commands []CommandRecord `json:"commands"`
 	Runtime *RuntimeSnapshot `json:"runtime,omitempty"`
+	Telemetry *TelemetrySnapshot `json:"telemetry,omitempty"`
 }
 type StateStore interface {
 	Load(deviceID string) (Snapshot, error)
@@ -202,6 +212,9 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 		if snapshot.Runtime != nil {
 			if err := d.restoreRuntime(snapshot.Runtime); err != nil { return nil, fmt.Errorf("restore runtime state: %w", err) }
 		}
+		if snapshot.Telemetry != nil {
+			if err := d.restoreTelemetry(snapshot.Telemetry); err != nil { return nil, fmt.Errorf("restore telemetry state: %w", err) }
+		}
 	}
 	return d, nil
 }
@@ -223,13 +236,45 @@ func (d *Device) restoreRuntime(runtime *RuntimeSnapshot) error {
 	if runtime.Flood!=nil&&runtime.Flood.ExpiresAt.After(time.Now()) { if math.IsNaN(runtime.Flood.Multiplier)||math.IsInf(runtime.Flood.Multiplier,0)||runtime.Flood.Multiplier<2||runtime.Flood.Multiplier>100{return fmt.Errorf("invalid persisted flood multiplier")}; d.Flood=&FloodFault{Multiplier:runtime.Flood.Multiplier,Until:d.VT+runtime.Flood.ExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale} }
 	return nil
 }
+func (d *Device) telemetrySnapshot() *TelemetrySnapshot {
+	metrics := make(map[string]PersistedMetricRuntime, len(d.Metrics))
+	for name, metric := range d.Metrics {
+		var last *Reading
+		if metric.Last != nil { copy := *metric.Last; last = &copy }
+		metrics[name] = PersistedMetricRuntime{X: metric.X, NextAt: metric.NextAt, Last: last}
+	}
+	return &TelemetrySnapshot{RNGState: d.Rng.State(), Metrics: metrics}
+}
+
+func (d *Device) restoreTelemetry(snapshot *TelemetrySnapshot) error {
+	if snapshot.Metrics == nil || len(snapshot.Metrics) != len(d.Metrics) { return fmt.Errorf("persisted telemetry metric set does not match device spec") }
+	for name := range snapshot.Metrics { if _, ok := d.Metrics[name]; !ok { return fmt.Errorf("persisted telemetry contains unknown metric %q", name) } }
+	for name, metric := range d.Metrics {
+		persisted, ok := snapshot.Metrics[name]
+		if !ok { return fmt.Errorf("persisted telemetry is missing metric %q", name) }
+		if math.IsNaN(persisted.X) || math.IsInf(persisted.X, 0) || math.IsNaN(persisted.NextAt) || math.IsInf(persisted.NextAt, 0) || persisted.NextAt < 0 {
+			return fmt.Errorf("persisted telemetry for metric %q contains invalid numeric state", name)
+		}
+		if persisted.Last != nil {
+			if persisted.Last.Metric != name || persisted.Last.Unit != metric.Def.Unit || math.IsNaN(persisted.Last.Value) || math.IsInf(persisted.Last.Value, 0) {
+				return fmt.Errorf("persisted last reading for metric %q is invalid", name)
+			}
+			if _, err := time.Parse(time.RFC3339Nano, persisted.Last.TS); err != nil { return fmt.Errorf("persisted last reading timestamp for metric %q is invalid: %w", name, err) }
+			last := *persisted.Last; metric.Last = &last
+		} else { metric.Last = nil }
+		metric.X, metric.NextAt = persisted.X, persisted.NextAt
+	}
+	d.Rng.Restore(snapshot.RNGState)
+	return nil
+}
+
 func (d *Device) persistRuntimeLocked() error { if d.Store==nil{return nil}; return d.Store.Save(d.snapshot(d.State,d.Recent,d.RecentOrder)) }
 func (d *Device) snapshot(state map[string]interface{}, recent map[string]CachedCommand, order []string) Snapshot {
 	records := make([]CommandRecord, 0, len(order))
 	for _, id := range order {
 		if c, ok := recent[id]; ok { records = append(records, CommandRecord{ID:id, Status:c.Status, Body:c.Body}) }
 	}
-	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot()}
+	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot(), Telemetry:d.telemetrySnapshot()}
 }
 
 func (d *Device) OnEvent(fn func(Event)) {
