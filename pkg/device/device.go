@@ -67,11 +67,27 @@ type CommandRecord struct {
 	Status int `json:"status"`
 	Body map[string]interface{} `json:"body"`
 }
+type PersistedSpikeFault struct {
+	Metric *string `json:"metric,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+type PersistedFloodFault struct {
+	Multiplier float64 `json:"multiplier"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+type RuntimeSnapshot struct {
+	DeviceTimeSec float64 `json:"deviceTimeSec"`
+	Status string `json:"status"`
+	OfflineExpiresAt *time.Time `json:"offlineExpiresAt,omitempty"`
+	Spike *PersistedSpikeFault `json:"spike,omitempty"`
+	Flood *PersistedFloodFault `json:"flood,omitempty"`
+}
 type Snapshot struct {
 	Version int `json:"version"`
 	DeviceID string `json:"deviceId"`
 	State map[string]interface{} `json:"state"`
 	Commands []CommandRecord `json:"commands"`
+	Runtime *RuntimeSnapshot `json:"runtime,omitempty"`
 }
 type StateStore interface {
 	Load(deviceID string) (Snapshot, error)
@@ -183,16 +199,37 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 				d.RecentOrder = append(d.RecentOrder, record.ID)
 			}
 		}
+		if snapshot.Runtime != nil {
+			if err := d.restoreRuntime(snapshot.Runtime); err != nil { return nil, fmt.Errorf("restore runtime state: %w", err) }
+		}
 	}
 	return d, nil
 }
 
+func (d *Device) runtimeSnapshot() *RuntimeSnapshot {
+	now:=time.Now().UTC()
+	runtime:=&RuntimeSnapshot{DeviceTimeSec:d.VT,Status:d.Status}
+	if d.Status=="OFFLINE" { remaining:=(d.OfflineUntil-d.VT)/d.TimeScale; expires:=now.Add(time.Duration(math.Max(0,remaining)*float64(time.Second))); runtime.OfflineExpiresAt=&expires }
+	if d.Spike!=nil { remaining:=(d.Spike.Until-d.VT)/d.TimeScale; expires:=now.Add(time.Duration(math.Max(0,remaining)*float64(time.Second))); runtime.Spike=&PersistedSpikeFault{Metric:d.Spike.Metric,ExpiresAt:expires} }
+	if d.Flood!=nil { remaining:=(d.Flood.Until-d.VT)/d.TimeScale; expires:=now.Add(time.Duration(math.Max(0,remaining)*float64(time.Second))); runtime.Flood=&PersistedFloodFault{Multiplier:d.Flood.Multiplier,ExpiresAt:expires} }
+	return runtime
+}
+func (d *Device) restoreRuntime(runtime *RuntimeSnapshot) error {
+	if math.IsNaN(runtime.DeviceTimeSec)||math.IsInf(runtime.DeviceTimeSec,0)||runtime.DeviceTimeSec<0{return fmt.Errorf("invalid persisted device time")}
+	if runtime.Status!="ONLINE"&&runtime.Status!="OFFLINE"{return fmt.Errorf("invalid persisted status %q",runtime.Status)}
+	d.VT=runtime.DeviceTimeSec
+	if runtime.Status=="OFFLINE" { if runtime.OfflineExpiresAt==nil{return fmt.Errorf("offline runtime is missing its expiry")}; remaining:=runtime.OfflineExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale; if remaining>0{d.Status="OFFLINE";d.OfflineUntil=d.VT+remaining} }
+	if runtime.Spike!=nil&&runtime.Spike.ExpiresAt.After(time.Now()) { if runtime.Spike.Metric!=nil { if _,ok:=d.Metrics[*runtime.Spike.Metric];!ok{return fmt.Errorf("persisted spike references unknown metric %q",*runtime.Spike.Metric)} }; d.Spike=&SpikeFault{Metric:runtime.Spike.Metric,Until:d.VT+runtime.Spike.ExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale} }
+	if runtime.Flood!=nil&&runtime.Flood.ExpiresAt.After(time.Now()) { if math.IsNaN(runtime.Flood.Multiplier)||math.IsInf(runtime.Flood.Multiplier,0)||runtime.Flood.Multiplier<2||runtime.Flood.Multiplier>100{return fmt.Errorf("invalid persisted flood multiplier")}; d.Flood=&FloodFault{Multiplier:runtime.Flood.Multiplier,Until:d.VT+runtime.Flood.ExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale} }
+	return nil
+}
+func (d *Device) persistRuntimeLocked() error { if d.Store==nil{return nil}; return d.Store.Save(d.snapshot(d.State,d.Recent,d.RecentOrder)) }
 func (d *Device) snapshot(state map[string]interface{}, recent map[string]CachedCommand, order []string) Snapshot {
 	records := make([]CommandRecord, 0, len(order))
 	for _, id := range order {
 		if c, ok := recent[id]; ok { records = append(records, CommandRecord{ID:id, Status:c.Status, Body:c.Body}) }
 	}
-	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records}
+	return Snapshot{Version:1, DeviceID:d.DeviceID, State:state, Commands:records, Runtime:d.runtimeSnapshot()}
 }
 
 func (d *Device) OnEvent(fn func(Event)) {
@@ -302,17 +339,21 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		d.Flood = nil
 	}
 
-	if d.Status == "OFFLINE" {
-		if d.VT >= d.OfflineUntil {
-			d.goOnline("RECOVERED")
+	if d.Status=="OFFLINE" {
+		if d.VT>=d.OfflineUntil {
+			oldUntil:=d.OfflineUntil; d.Status,d.OfflineUntil="ONLINE",0
+			if err:=d.persistRuntimeLocked();err!=nil{d.Status,d.OfflineUntil="OFFLINE",oldUntil;return nil}
+			for _,metric:=range d.Metrics{metric.NextAt=d.VT}
+			d.emit(Event{Type:"STATUS_CHANGED",Status:"ONLINE",Reason:"RECOVERED"})
 		}
 		return nil
 	}
-
-	if d.Spec.OfflineRate > 0 {
-		p := 1.0 - math.Pow(1.0-d.Spec.OfflineRate, dt)
-		if d.Rng.Next() < p {
-			d.goOffline(5.0+d.Rng.Next()*15.0, "RANDOM")
+	if d.Spec.OfflineRate>0 {
+		p:=1.0-math.Pow(1.0-d.Spec.OfflineRate,dt)
+		if d.Rng.Next()<p {
+			oldStatus,oldUntil:=d.Status,d.OfflineUntil; d.Status="OFFLINE"; d.OfflineUntil=d.VT+5.0+d.Rng.Next()*15.0
+			if err:=d.persistRuntimeLocked();err!=nil{d.Status,d.OfflineUntil=oldStatus,oldUntil;return nil}
+			d.emit(Event{Type:"STATUS_CHANGED",Status:"OFFLINE",Reason:"RANDOM"})
 			return nil
 		}
 	}
@@ -508,100 +549,37 @@ func (d *Device) ExecuteCommand(raw []byte) (int, map[string]interface{}) {
 func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
 	var req map[string]interface{}
-	if err := json.Unmarshal(raw, &req); err != nil {
-		return 400, map[string]interface{}{"error": "action is required (OFFLINE | SPIKE | FLOOD | CLEAR)"}
-	}
-
-	action, ok := req["action"].(string)
-	if !ok {
-		return 400, map[string]interface{}{"error": "action is required (OFFLINE | SPIKE | FLOOD | CLEAR)"}
-	}
-
-	var dur *float64
-	if dVal, exists := req["durationSec"]; exists {
-		var durFloat float64
-		switch n := dVal.(type) {
-		case float64:
-			durFloat = n
-		case int:
-			durFloat = float64(n)
-		default:
-			return 400, map[string]interface{}{"error": "durationSec must be a number between 0 and 86400"}
-		}
-		if durFloat <= 0 || durFloat > 86400 {
-			return 400, map[string]interface{}{"error": "durationSec must be a number between 0 and 86400"}
-		}
-		dur = &durFloat
-	}
-
-	durationOrDefault := func(def float64) float64 {
-		if dur != nil {
-			return *dur
-		}
-		return def
-	}
-
+	if err:=json.Unmarshal(raw,&req);err!=nil{return 400,map[string]interface{}{"error":"action is required (OFFLINE | SPIKE | FLOOD | CLEAR)"}}
+	action,ok:=req["action"].(string);if !ok{return 400,map[string]interface{}{"error":"action is required (OFFLINE | SPIKE | FLOOD | CLEAR)"}}
+	var duration *float64
+	if value,exists:=req["durationSec"];exists{number,ok:=value.(float64);if !ok||number<=0||number>86400{return 400,map[string]interface{}{"error":"durationSec must be a number between 0 and 86400"}};duration=&number}
+	durationOrDefault:=func(def float64)float64{if duration!=nil{return *duration};return def}
+	oldStatus,oldOfflineUntil,oldSpike,oldFlood:=d.Status,d.OfflineUntil,d.Spike,d.Flood
+	reason:=""
 	switch action {
 	case "OFFLINE":
-		dSec := durationOrDefault(60.0)
-		if d.Status == "ONLINE" {
-			d.goOffline(dSec, "FAULT_INJECTED")
-		} else {
-			d.OfflineUntil = d.VT + dSec
-		}
-		return 200, map[string]interface{}{"ok": true, "action": "OFFLINE"}
-
+		d.Status="OFFLINE";d.OfflineUntil=d.VT+durationOrDefault(60);if oldStatus!="OFFLINE"{reason="FAULT_INJECTED"}
 	case "SPIKE":
 		var metricPtr *string
-		if mVal, exists := req["metric"]; exists {
-			mStr, ok := mVal.(string)
-			if !ok {
-				return 400, map[string]interface{}{"error": "metric must be a string"}
-			}
-			if _, exists := d.Metrics[mStr]; !exists {
-				return 400, map[string]interface{}{"error": fmt.Sprintf("unknown metric '%s'", mStr)}
-			}
-			metricPtr = &mStr
-		}
-		dSec := durationOrDefault(30.0)
-		d.Spike = &SpikeFault{Metric: metricPtr, Until: d.VT + dSec}
-		res := map[string]interface{}{"ok": true, "action": "SPIKE"}
-		if metricPtr != nil {
-			res["metric"] = *metricPtr
-		}
-		return 200, res
-
+		if value,exists:=req["metric"];exists{name,ok:=value.(string);if !ok{return 400,map[string]interface{}{"error":"metric must be a string"}};if _,exists:=d.Metrics[name];!exists{return 400,map[string]interface{}{"error":fmt.Sprintf("unknown metric '%s'",name)}};metricPtr=&name}
+		d.Spike=&SpikeFault{Metric:metricPtr,Until:d.VT+durationOrDefault(30)}
 	case "FLOOD":
-		mult := 10.0
-		if mVal, exists := req["multiplier"]; exists {
-			switch n := mVal.(type) {
-			case float64:
-				mult = n
-			case int:
-				mult = float64(n)
-			default:
-				return 400, map[string]interface{}{"error": "multiplier must be between 2 and 100"}
-			}
-			if mult < 2 || mult > 100 {
-				return 400, map[string]interface{}{"error": "multiplier must be between 2 and 100"}
-			}
-		}
-		dSec := durationOrDefault(30.0)
-		d.Flood = &FloodFault{Multiplier: mult, Until: d.VT + dSec}
-		return 200, map[string]interface{}{"ok": true, "action": "FLOOD", "multiplier": mult}
-
+		multiplier:=10.0
+		if value,exists:=req["multiplier"];exists{number,ok:=value.(float64);if !ok||number<2||number>100{return 400,map[string]interface{}{"error":"multiplier must be between 2 and 100"}};multiplier=number}
+		d.Flood=&FloodFault{Multiplier:multiplier,Until:d.VT+durationOrDefault(30)}
 	case "CLEAR":
-		d.Spike = nil
-		d.Flood = nil
-		if d.Status == "OFFLINE" {
-			d.goOnline("FAULT_CLEARED")
-		}
-		return 200, map[string]interface{}{"ok": true, "action": "CLEAR"}
-
-	default:
-		return 400, map[string]interface{}{"error": fmt.Sprintf("unknown action '%s'", action)}
+		d.Spike,d.Flood=nil,nil
+		if d.Status=="OFFLINE"{d.Status,d.OfflineUntil="ONLINE",0;reason="FAULT_CLEARED"}
+	default:return 400,map[string]interface{}{"error":fmt.Sprintf("unknown action '%s'",action)}
+	}
+	if err:=d.persistRuntimeLocked();err!=nil{d.Status,d.OfflineUntil,d.Spike,d.Flood=oldStatus,oldOfflineUntil,oldSpike,oldFlood;return 503,map[string]interface{}{"error":"runtime state could not be persisted","reason":"PERSISTENCE_FAILED"}}
+	if reason!=""{if d.Status=="ONLINE"{for _,metric:=range d.Metrics{metric.NextAt=d.VT}};d.emit(Event{Type:"STATUS_CHANGED",Status:d.Status,Reason:reason})}
+	switch action {
+	case "OFFLINE":return 200,map[string]interface{}{"ok":true,"action":"OFFLINE"}
+	case "SPIKE":result:=map[string]interface{}{"ok":true,"action":"SPIKE"};if d.Spike.Metric!=nil{result["metric"]=*d.Spike.Metric};return 200,result
+	case "FLOOD":return 200,map[string]interface{}{"ok":true,"action":"FLOOD","multiplier":d.Flood.Multiplier}
+	default:return 200,map[string]interface{}{"ok":true,"action":"CLEAR"}
 	}
 }
 

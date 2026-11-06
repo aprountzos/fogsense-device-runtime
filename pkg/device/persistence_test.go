@@ -3,6 +3,7 @@ package device
 import (
  "errors"
  "testing"
+ "time"
  "fogsense-device-runtime/pkg/spec"
 )
 
@@ -37,4 +38,28 @@ func TestUnsupportedSnapshotVersionFailsStartup(t *testing.T) {
  store:=&testStateStore{snapshot:Snapshot{Version:2,DeviceID:"light-1",State:map[string]interface{}{"power":"ON"}}}
  _,err:=NewDeviceWithError(Config{DeviceID:"light-1",Spec:testPersistedSpec(t),Store:store})
  if err==nil { t.Fatal("expected unsupported snapshot version to fail startup") }
+}
+
+func TestRuntimeFaultsSurviveRestart(t *testing.T) {
+	store:=&testStateStore{};cfg:=Config{DeviceID:"light-1",Spec:testPersistedSpec(t),Store:store}
+	first,err:=NewDeviceWithError(cfg);if err!=nil{t.Fatal(err)}
+	for _,command:=range []string{`{"action":"OFFLINE","durationSec":120}`,`{"action":"SPIKE","durationSec":90}`,`{"action":"FLOOD","durationSec":60,"multiplier":5}`}{
+		if status,body:=first.ApplyFault([]byte(command));status!=200{t.Fatalf("fault failed: %d %+v",status,body)}
+	}
+	second,err:=NewDeviceWithError(cfg);if err!=nil{t.Fatal(err)}
+	if second.Status!="OFFLINE"||second.OfflineUntil<=second.VT{t.Fatalf("offline not restored: %s %v %v",second.Status,second.OfflineUntil,second.VT)}
+	if second.Spike==nil||second.Spike.Until<=second.VT{t.Fatalf("spike not restored: %+v",second.Spike)}
+	if second.Flood==nil||second.Flood.Multiplier!=5||second.Flood.Until<=second.VT{t.Fatalf("flood not restored: %+v",second.Flood)}
+}
+func TestExpiredRuntimeFaultsAreNotRestored(t *testing.T) {
+	past:=time.Now().Add(-time.Minute)
+	store:=&testStateStore{snapshot:Snapshot{Version:1,DeviceID:"light-1",State:map[string]interface{}{"power":"OFF"},Runtime:&RuntimeSnapshot{DeviceTimeSec:12,Status:"OFFLINE",OfflineExpiresAt:&past,Spike:&PersistedSpikeFault{ExpiresAt:past},Flood:&PersistedFloodFault{Multiplier:5,ExpiresAt:past}}}}
+	d,err:=NewDeviceWithError(Config{DeviceID:"light-1",Spec:testPersistedSpec(t),Store:store});if err!=nil{t.Fatal(err)}
+	if d.Status!="ONLINE"||d.Spike!=nil||d.Flood!=nil||d.VT!=12{t.Fatalf("expired runtime restored: status=%s spike=%+v flood=%+v vt=%v",d.Status,d.Spike,d.Flood,d.VT)}
+}
+func TestFaultPersistenceFailureRollsBack(t *testing.T) {
+	store:=&testStateStore{fail:true};d,err:=NewDeviceWithError(Config{DeviceID:"light-1",Spec:testPersistedSpec(t),Store:store});if err!=nil{t.Fatal(err)}
+	status,body:=d.ApplyFault([]byte(`{"action":"OFFLINE","durationSec":10}`))
+	if status!=503||body["reason"]!="PERSISTENCE_FAILED"{t.Fatalf("expected persistence failure: %d %+v",status,body)}
+	if d.Status!="ONLINE"{t.Fatalf("fault applied despite persistence failure: %s",d.Status)}
 }
