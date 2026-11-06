@@ -8,7 +8,7 @@ This document defines the MQTT alternative to the HTTP gateway API. The device's
 - Supported broker URL schemes: `mqtt://` and `mqtts://`
 - Default client ID: `fogsense-<DEVICE_ID>`
 - Optional CONNECT username/password are configured independently from HTTP tokens.
-- The device uses QoS 1 for publications and its command, registration-ack and delivery-ack subscriptions. The device also keeps a disk-backed outbox by default.
+- The device uses QoS 1 for publications and its command, registration-ack and delivery-ack subscriptions. Its MQTT session is resumable with a 24-hour expiry; keep the client ID stable and enable broker persistence if unacknowledged inbound commands must survive a device or broker restart. The device also keeps a disk-backed outbox by default.
 - Messages are not retained.
 
 ## Topics

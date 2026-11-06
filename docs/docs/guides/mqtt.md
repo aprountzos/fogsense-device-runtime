@@ -71,7 +71,7 @@ $env:DEVICE_SPEC_FILE = "examples/smart-light.yaml"
 go run .
 ```
 
-The runtime creates the default client ID `fogsense-<DEVICE_ID>` when `MQTT_CLIENT_ID` is not set.
+The runtime creates the default client ID `fogsense-<DEVICE_ID>` when `MQTT_CLIENT_ID` is not set. It uses a resumable MQTT session with a 24-hour expiry, so the broker can redeliver unacknowledged QoS 1 commands after a device process restart. Keep the client ID stable and configure broker persistence/queued-message limits; a broker that discards its session state cannot provide this recovery.
 
 ## Topics
 
