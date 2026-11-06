@@ -20,13 +20,16 @@ func TestMQTTAcceptedPayloadAndDeduplicationSurviveRestart(t *testing.T) {
 		"deviceId": "mqtt-light-1",
 		"bootId": "boot-1",
 		"messageId": "message-1",
-		"seq": 1,
+		"seq": float64(1),
 		"ts": "2026-11-06T00:00:00Z",
 		"readings": []interface{}{map[string]interface{}{"metric": "temperature", "value": 20.5}},
 	}
-	duplicate, err := store.Accept(ctx, "mqtt-light-1", "message-1", "telemetry", payload)
+	deviceID, messageID, kind, duplicate, err := acceptMQTTDelivery(ctx, store, payload, "fogsense/v1/devices/mqtt-light-1/telemetry", "fogsense/v1/devices")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if deviceID != "mqtt-light-1" || messageID != "message-1" || kind != "telemetry" {
+		t.Fatalf("accepted identity = %q/%q kind=%q", deviceID, messageID, kind)
 	}
 	if duplicate {
 		t.Fatal("first MQTT delivery was marked duplicate")
@@ -40,7 +43,7 @@ func TestMQTTAcceptedPayloadAndDeduplicationSurviveRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	duplicate, err = store.Accept(ctx, "mqtt-light-1", "message-1", "telemetry", map[string]string{"changed": "payload"})
+	_, _, _, duplicate, err = acceptMQTTDelivery(ctx, store, payload, "fogsense/v1/devices/mqtt-light-1/telemetry", "fogsense/v1/devices")
 	if err != nil {
 		t.Fatal(err)
 	}
