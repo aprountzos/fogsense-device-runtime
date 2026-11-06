@@ -389,7 +389,7 @@ func (d *Device) restorePendingCommandAcks(pending []PendingCommandAck) error {
 	seen := make(map[string]struct{}, len(pending))
 	seenCommands := make(map[string]struct{}, len(pending))
 	for _, ack := range pending {
-		if ack.MessageID == "" || ack.Status < 100 || ack.Status > 599 || ack.Response == nil {
+		if ack.MessageID == "" || ack.Status < 100 || ack.Status > 599 || ack.Response == nil || len(ack.CommandID) > 100 {
 			return fmt.Errorf("persisted pending command acknowledgement is invalid")
 		}
 		if _, exists := seen[ack.MessageID]; exists {
@@ -418,6 +418,9 @@ func (d *Device) PendingCommandAcks() []PendingCommandAck {
 func (d *Device) QueueCommandAck(commandID string, status int, response map[string]interface{}) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if status < 100 || status > 599 || response == nil || len(commandID) > 100 {
+		return "", fmt.Errorf("invalid pending command acknowledgement")
+	}
 	if commandID != "" {
 		for _, ack := range d.PendingCommandAckBatches {
 			if ack.CommandID == commandID {
