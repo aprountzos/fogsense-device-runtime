@@ -409,7 +409,7 @@ go run .
 
 ## What it is not
 
-Declared state, command idempotency history, active fault-injection controls, and telemetry generator checkpoints persist locally. Metric progression, next emission times, last readings, and the telemetry PRNG state are checkpointed when readings are generated, not on every 250 ms simulation tick. Keep `DEVICE_STATE_PATH` on persistent storage. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
+Declared state, command idempotency history, active fault-injection controls, and telemetry generator checkpoints persist locally. Metric progression, next emission times, last readings, and the telemetry PRNG state are checkpointed when readings are generated, not on every 250 ms simulation tick. Generated batches remain in a bounded device-side pending queue until durably transferred to the persistent HTTP/MQTT outbox, retaining stable message IDs across a crash during handoff. Sampling pauses if the 500-batch pending queue fills. Keep both `DEVICE_STATE_PATH` and `OUTBOX_PATH` on persistent storage. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
 
 ## Contributing & Community
 

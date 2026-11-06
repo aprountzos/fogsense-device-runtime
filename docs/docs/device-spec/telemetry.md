@@ -91,7 +91,9 @@ When a device state database is configured, each telemetry emission is checkpoin
 
 This allows a restarted process to continue the telemetry sequence instead of reinitializing metric progression and random sampling. Checkpoints occur when readings are generated, not on every 250 ms simulation tick. Runtime state and command updates also include the latest telemetry checkpoint.
 
-If a checkpoint cannot be committed, the tick is rolled back in memory and its readings are not handed to the transport layer. Keep the `DEVICE_STATE_PATH` database on persistent storage to retain this behavior across container restarts.
+Generated batches are kept in a bounded, durable pending queue in the same SQLite snapshot until the transport client has committed them to its own outbox. Each batch retains a stable message ID during this handoff. If the outbox is full or unavailable, pending batches remain in the device database and new metric sampling pauses when the 500-batch pending limit is reached. If the process stops between the outbox commit and the device-side handoff acknowledgement, the batch is replayed with the same ID, allowing gateway deduplication.
+
+If a checkpoint cannot be committed, the tick is rolled back in memory and its readings are not handed to the transport layer. Keep the `DEVICE_STATE_PATH` database and `OUTBOX_PATH` on persistent storage to retain this behavior across container restarts.
 
 ## Telemetry Delivery
 
