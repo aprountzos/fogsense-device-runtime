@@ -232,7 +232,6 @@ func main() {
 	})
 
 	dev.OnEvent(func(evt device.Event) {
-		gwClient.EnqueueEvent(evt)
 		if evt.Type == "STATUS_CHANGED" && evt.Status == "ONLINE" {
 			gwClient.Kick()
 		}
@@ -267,6 +266,20 @@ func main() {
 			case now := <-ticker.C:
 				dt := now.Sub(last).Seconds()
 				last = now
+				dev.Tick(dt)
+				for _, item := range dev.PendingEvents() {
+					if !gwClient.EnqueueEvent(item.Event, item.MessageID) {
+						break
+					}
+					if err := dev.AcknowledgeEvent(item.MessageID); err != nil {
+						logJSON("error", "failed to acknowledge event outbox handoff", map[string]interface{}{
+							"messageId": item.MessageID,
+							"eventType": item.Event.Type,
+							"error": err.Error(),
+						})
+						break
+					}
+				}
 				dev.Tick(dt)
 				for _, batch := range dev.PendingTelemetry() {
 					if !gwClient.EnqueueTelemetry(batch.Readings, batch.MessageID) {

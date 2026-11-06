@@ -227,25 +227,25 @@ func (c *Client) EnqueueTelemetry(readings []device.Reading, stableMessageID ...
 	return c.enqueueWithMessageID(path, map[string]interface{}{"readings": readings}, messageID)
 }
 
-func (c *Client) EnqueueEvent(evt device.Event) {
+func (c *Client) EnqueueEvent(evt device.Event, stableMessageID ...string) bool {
 	path := fmt.Sprintf("/devices/%s/events", url.PathEscape(c.dev.DeviceID))
+	messageID := ""
+	if len(stableMessageID) > 0 {
+		messageID = stableMessageID[0]
+	}
+	eventID := messageID
+	if eventID == "" {
+		eventID = generateUUID()
+	}
 	payload := map[string]interface{}{
-		"eventId": generateUUID(),
-		"type":    evt.Type,
+		"eventId": eventID,
+		"type": evt.Type,
 	}
-	if evt.Status != "" {
-		payload["status"] = evt.Status
-	}
-	if evt.Reason != "" {
-		payload["reason"] = evt.Reason
-	}
-	if evt.State != nil {
-		payload["state"] = evt.State
-	}
-	if evt.Cause != nil {
-		payload["cause"] = evt.Cause
-	}
-	c.enqueue(path, payload)
+	if evt.Status != "" { payload["status"] = evt.Status }
+	if evt.Reason != "" { payload["reason"] = evt.Reason }
+	if evt.State != nil { payload["state"] = evt.State }
+	if evt.Cause != nil { payload["cause"] = evt.Cause }
+	return c.enqueueWithMessageID(path, payload, messageID)
 }
 
 func (c *Client) enqueue(path string, payload map[string]interface{}) bool {
