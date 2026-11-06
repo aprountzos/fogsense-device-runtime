@@ -62,6 +62,21 @@ func validateMQTTDeliveryMessage(payload map[string]interface{}, topic, prefix s
 	return deviceID, messageID, ""
 }
 
+func acceptMQTTDelivery(ctx context.Context, store *gatewaystore.Store, payload map[string]interface{}, topic, prefix string) (string, string, string, bool, error) {
+	deviceID, messageID, validationError := validateMQTTDeliveryMessage(payload, topic, prefix)
+	if validationError != "" {
+		return deviceID, messageID, "", false, fmt.Errorf("invalid MQTT delivery: %s", validationError)
+	}
+	relativeTopic := strings.TrimPrefix(strings.Trim(topic, "/"), strings.TrimRight(prefix, "/")+"/")
+	topicParts := strings.Split(relativeTopic, "/")
+	kind := strings.Join(topicParts[1:], "/")
+	duplicate, err := store.Accept(ctx, deviceID, messageID, kind, payload)
+	if err != nil {
+		return deviceID, messageID, kind, false, err
+	}
+	return deviceID, messageID, kind, duplicate, nil
+}
+
 func maintainSubscription(ctx context.Context, cm *autopaho.ConnectionManager, topic string, ready *atomic.Bool) {
 	backoff := time.Second
 	for {
@@ -244,10 +259,7 @@ func main() {
 								}
 								return true, nil
 							}
-							relativeTopic := strings.TrimPrefix(strings.Trim(received.Packet.Topic, "/"), strings.TrimRight(*prefix, "/")+"/")
-							topicParts := strings.Split(relativeTopic, "/")
-							kind := strings.Join(topicParts[1:], "/")
-							duplicate, err := messageStore.Accept(ctx, deviceID, messageID, kind, payload)
+							deviceID, messageID, kind, duplicate, err := acceptMQTTDelivery(ctx, messageStore, payload, received.Packet.Topic, *prefix)
 							if err != nil {
 								dedupeHealthy.Store(false)
 								log.Printf("cannot persist %s message %s from %s: %v", kind, messageID, deviceID, err)
