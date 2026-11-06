@@ -773,6 +773,7 @@ func (d *Device) ControlStatus() map[string]interface{} {
 		"status":        d.Status,
 		"deviceTimeSec": round2(d.VT),
 		"offlineUntil":  offUntil,
+		"pendingTelemetryBatches": len(d.PendingTelemetryBatches),
 		"spike":         d.Spike,
 		"flood":         d.Flood,
 	}
