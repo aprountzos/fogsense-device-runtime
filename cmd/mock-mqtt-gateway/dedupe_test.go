@@ -16,6 +16,7 @@ func TestMQTTAcceptedPayloadAndDeduplicationSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer store.Close()
 	payload := map[string]interface{}{
 		"deviceId": "mqtt-light-1",
 		"bootId": "boot-1",
