@@ -81,6 +81,7 @@ type RuntimeSnapshot struct {
 	OfflineExpiresAt *time.Time `json:"offlineExpiresAt,omitempty"`
 	Spike *PersistedSpikeFault `json:"spike,omitempty"`
 	Flood *PersistedFloodFault `json:"flood,omitempty"`
+	OfflineRNGState *uint32 `json:"offlineRngState,omitempty"`
 }
 type PersistedMetricRuntime struct {
 	X float64 `json:"x"`
@@ -110,6 +111,7 @@ type Device struct {
 	Spec         *spec.DeviceSpec
 	TimeScale    float64
 	Rng          *prng.Mulberry32
+	OfflineRng   *prng.Mulberry32
 	BootID       string
 	StartedAt    time.Time
 	VT           float64
@@ -163,6 +165,7 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 		Spec:        cfg.Spec,
 		TimeScale:   ts,
 		Rng:         prng.NewMulberry32(seed),
+		OfflineRng:  prng.NewMulberry32(seed ^ 0x9e3779b9),
 		BootID:      generateUUID(),
 		StartedAt:   time.Now(),
 		VT:          0,
@@ -221,7 +224,8 @@ func NewDeviceWithError(cfg Config) (*Device, error) {
 
 func (d *Device) runtimeSnapshot() *RuntimeSnapshot {
 	now:=time.Now().UTC()
-	runtime:=&RuntimeSnapshot{DeviceTimeSec:d.VT,Status:d.Status}
+	offlineRNGState := d.OfflineRng.State()
+	runtime:=&RuntimeSnapshot{DeviceTimeSec:d.VT,Status:d.Status,OfflineRNGState:&offlineRNGState}
 	if d.Status=="OFFLINE" { remaining:=(d.OfflineUntil-d.VT)/d.TimeScale; expires:=now.Add(time.Duration(math.Max(0,remaining)*float64(time.Second))); runtime.OfflineExpiresAt=&expires }
 	if d.Spike!=nil { remaining:=(d.Spike.Until-d.VT)/d.TimeScale; expires:=now.Add(time.Duration(math.Max(0,remaining)*float64(time.Second))); runtime.Spike=&PersistedSpikeFault{Metric:d.Spike.Metric,ExpiresAt:expires} }
 	if d.Flood!=nil { remaining:=(d.Flood.Until-d.VT)/d.TimeScale; expires:=now.Add(time.Duration(math.Max(0,remaining)*float64(time.Second))); runtime.Flood=&PersistedFloodFault{Multiplier:d.Flood.Multiplier,ExpiresAt:expires} }
@@ -231,6 +235,7 @@ func (d *Device) restoreRuntime(runtime *RuntimeSnapshot) error {
 	if math.IsNaN(runtime.DeviceTimeSec)||math.IsInf(runtime.DeviceTimeSec,0)||runtime.DeviceTimeSec<0{return fmt.Errorf("invalid persisted device time")}
 	if runtime.Status!="ONLINE"&&runtime.Status!="OFFLINE"{return fmt.Errorf("invalid persisted status %q",runtime.Status)}
 	d.VT=runtime.DeviceTimeSec
+	if runtime.OfflineRNGState != nil { d.OfflineRng.Restore(*runtime.OfflineRNGState) }
 	if runtime.Status=="OFFLINE" { if runtime.OfflineExpiresAt==nil{return fmt.Errorf("offline runtime is missing its expiry")}; remaining:=runtime.OfflineExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale; if remaining>0{d.Status="OFFLINE";d.OfflineUntil=d.VT+remaining} }
 	if runtime.Spike!=nil&&runtime.Spike.ExpiresAt.After(time.Now()) { if runtime.Spike.Metric!=nil { if _,ok:=d.Metrics[*runtime.Spike.Metric];!ok{return fmt.Errorf("persisted spike references unknown metric %q",*runtime.Spike.Metric)} }; d.Spike=&SpikeFault{Metric:runtime.Spike.Metric,Until:d.VT+runtime.Spike.ExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale} }
 	if runtime.Flood!=nil&&runtime.Flood.ExpiresAt.After(time.Now()) { if math.IsNaN(runtime.Flood.Multiplier)||math.IsInf(runtime.Flood.Multiplier,0)||runtime.Flood.Multiplier<2||runtime.Flood.Multiplier>100{return fmt.Errorf("invalid persisted flood multiplier")}; d.Flood=&FloodFault{Multiplier:runtime.Flood.Multiplier,Until:d.VT+runtime.Flood.ExpiresAt.Sub(time.Now()).Seconds()*d.TimeScale} }
@@ -380,6 +385,7 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 	previousSpike := d.Spike
 	previousFlood := d.Flood
 	previousTelemetry := d.telemetrySnapshot()
+	previousOfflineRNGState := d.OfflineRng.State()
 	rollback := func() {
 		d.VT = previousVT
 		d.Status = previousStatus
@@ -387,6 +393,7 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 		d.Spike = previousSpike
 		d.Flood = previousFlood
 		_ = d.restoreTelemetry(previousTelemetry)
+		d.OfflineRng.Restore(previousOfflineRNGState)
 	}
 
 	dt := dtRealSec * d.TimeScale
@@ -417,9 +424,9 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 
 	if d.Spec.OfflineRate > 0 {
 		p := 1.0 - math.Pow(1.0-d.Spec.OfflineRate, dt)
-		if d.Rng.Next() < p {
+		if d.OfflineRng.Next() < p {
 			d.Status = "OFFLINE"
-			d.OfflineUntil = d.VT + 5.0 + d.Rng.Next()*15.0
+			d.OfflineUntil = d.VT + 5.0 + d.OfflineRng.Next()*15.0
 			if err := d.persistRuntimeLocked(); err != nil {
 				rollback()
 				return nil
