@@ -180,7 +180,7 @@ docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
   -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
 ```
 
-The runtime executes the command using the same device command engine as its HTTP API and queues the result for `commands/ack`. Command acknowledgements use the same bounded persistent outbox and application-acknowledgement path as telemetry and events, and survive a device process restart when the outbox volume is retained.
+The runtime executes the command using the same device command engine as its HTTP API and queues the result for `commands/ack`. The broker's QoS 1 delivery is acknowledged only after the command result has been durably queued in the device outbox. If command-state persistence or acknowledgement queueing fails, the runtime leaves the broker delivery unacknowledged so it can be redelivered; the persisted `commandId` cache prevents reapplying an already committed command. Command acknowledgements use the same bounded persistent outbox and application-acknowledgement path as telemetry and events, and survive a device process restart when the outbox volume is retained.
 
 The local mock MQTT gateway logs received messages, persists accepted message IDs for deduplication, and acknowledges registration and message acceptance. Its `/health` endpoint returns `200` only after it has connected and subscribed; Compose uses this readiness endpoint. It is a development tool, not a production gateway or transactional message processor.
 
