@@ -14,6 +14,7 @@ services:
       - "1883:1883"
     volumes:
       - ./examples/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-broker-data:/mosquitto/data
 
   mqtt-gateway:
     build: .
@@ -40,6 +41,7 @@ services:
       ADVERTISE_URL: http://mqtt-light:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
       OUTBOX_PATH: /data/outbox.json
+      DEVICE_STATE_PATH: /data/device-state.db
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
       - mqtt-light-outbox:/data
@@ -61,6 +63,7 @@ services:
       - mqtt-sensor-outbox:/data
 
 volumes:
+  mqtt-broker-data:
   mqtt-light-outbox:
   mqtt-sensor-outbox:
   mqtt-gateway-data:
