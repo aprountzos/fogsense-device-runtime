@@ -252,7 +252,6 @@ func (c *Client) handleMQTTCommand(payload []byte) bool {
 		log.Printf("cannot persist MQTT command acknowledgement for %q: %v", commandID, err)
 		return false
 	}
-	c.Kick()
 	return true
 }
 
