@@ -1,0 +1,70 @@
+# MQTT transport playground (local development only).
+#
+#   docker compose -f docker-compose.mqtt.example.yml up --build
+#   docker compose -f docker-compose.mqtt.example.yml logs -f mqtt-gateway
+#
+# This broker deliberately allows anonymous connections for a frictionless local demo.
+# Do not expose it to an untrusted network. Configure TLS, password_file and ACLs for real deployments.
+
+services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    command: ["mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./examples/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt-broker-data:/mosquitto/data
+
+  mqtt-gateway:
+    build: .
+    entrypoint: ["fogsense-mock-mqtt-gateway"]
+    command: ["--broker-url", "mqtt://mqtt-broker:1883", "--store-file", "/data/mqtt-gateway.db"]
+    depends_on: [mqtt-broker]
+    volumes:
+      - mqtt-gateway-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  mqtt-light:
+    build: .
+    depends_on: [mqtt-broker]
+    environment:
+      DEVICE_ID: mqtt-light-1
+      GATEWAY_TRANSPORT: mqtt
+      MQTT_BROKER_URL: mqtt://mqtt-broker:1883
+      DEVICE_TOKEN: demo-device-token
+      ADVERTISE_URL: http://mqtt-light:8080
+      DEVICE_SPEC_FILE: /config/spec.yaml
+      OUTBOX_PATH: /data/outbox.json
+      DEVICE_STATE_PATH: /data/device-state.db
+    volumes:
+      - ./examples/smart-light.yaml:/config/spec.yaml:ro
+      - mqtt-light-outbox:/data
+    ports:
+      - "8083:8080"
+
+  mqtt-sensor:
+    build: .
+    depends_on: [mqtt-broker]
+    environment:
+      DEVICE_ID: mqtt-sensor-1
+      GATEWAY_TRANSPORT: mqtt
+      MQTT_BROKER_URL: mqtt://mqtt-broker:1883
+      ADVERTISE_URL: http://mqtt-sensor:8080
+      DEVICE_SPEC_FILE: /config/spec.yaml
+      OUTBOX_PATH: /data/outbox.json
+      DEVICE_STATE_PATH: /data/device-state.db
+    volumes:
+      - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
+      - mqtt-sensor-outbox:/data
+
+volumes:
+  mqtt-broker-data:
+  mqtt-light-outbox:
+  mqtt-sensor-outbox:
+  mqtt-gateway-data:

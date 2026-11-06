@@ -11,10 +11,14 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"fogsense-device-runtime/pkg/gatewaystore"
 )
 
 type DeviceRecord struct {
@@ -37,10 +41,13 @@ type DeviceRecord struct {
 }
 
 var (
-	mu          sync.Mutex
-	devices     = make(map[string]*DeviceRecord)
-	quiet       bool
-	deviceToken string
+	mu            sync.Mutex
+	devices       = make(map[string]*DeviceRecord)
+	gatewayStore  *gatewaystore.Store
+	quiet         bool
+	deviceToken   string
+	dedupeFile    string
+	dedupeHealthy atomic.Bool
 )
 
 func logTime() string {
@@ -89,6 +96,9 @@ func tokenOk(r *http.Request) bool {
 
 // Validation helpers
 func validateEnvelope(b map[string]interface{}, errors *[]string) {
+	if messageID, ok := b["messageId"].(string); !ok || messageID == "" {
+		*errors = append(*errors, "messageId (stable string) is required")
+	}
 	if devID, ok := b["deviceId"].(string); !ok || devID == "" {
 		*errors = append(*errors, "deviceId (string) is required")
 	}
@@ -232,6 +242,21 @@ func handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if r.Method == http.MethodGet && path == "/health" {
+			if !dedupeHealthy.Load() {
+				sendJSON(w, http.StatusServiceUnavailable, map[string]interface{}{"status": "DOWN", "reason": "deduplication storage unavailable"})
+				return
+			}
+			mu.Lock()
+			deviceCount := len(devices)
+			mu.Unlock()
+			sendJSON(w, http.StatusOK, map[string]interface{}{
+				"status": "UP",
+				"registeredDevices": deviceCount,
+				"deduplicationStore": dedupeFile,
+			})
+			return
+		}
 
 		if r.Method == http.MethodGet && path == "/debug/devices" {
 			mu.Lock()
@@ -357,6 +382,7 @@ func handler() http.Handler {
 
 			bootID, _ := body["bootId"].(string)
 			seq := toInt64(body["seq"])
+			messageID, _ := body["messageId"].(string)
 
 			mu.Lock()
 			rec, exists := devices[devID]
@@ -365,11 +391,31 @@ func handler() http.Handler {
 				sendJSON(w, http.StatusNotFound, map[string]string{"error": "UNREGISTERED"})
 				return
 			}
-
+			if gatewayStore == nil {
+				dedupeHealthy.Store(false)
+				mu.Unlock()
+				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+				return
+			}
+			duplicate, err := gatewayStore.Accept(r.Context(), devID, messageID, kind, body)
+			if err != nil {
+				dedupeHealthy.Store(false)
+				mu.Unlock()
+				logMsg("failed to persist %s %s/%s: %v", kind, devID, messageID, err)
+				sendJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "DEDUPE_STORE_UNAVAILABLE"})
+				return
+			}
+			dedupeHealthy.Store(true)
+			if duplicate {
+				rec.Duplicates++
+				mu.Unlock()
+				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
+				return
+			}
 			if rec.Seen[seq] {
 				rec.Duplicates++
 				mu.Unlock()
-				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true})
+				sendJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "duplicate": true, "messageId": messageID})
 				return
 			}
 
@@ -414,6 +460,7 @@ func handler() http.Handler {
 					logMsg("EVENT %s seq=%d STATE_CHANGED %s", devID, seq, string(stateBytes))
 				}
 			}
+			dedupeHealthy.Store(true)
 			mu.Unlock()
 
 			sendJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -898,6 +945,18 @@ func runChecks(port int, devToken, ctrlToken, overrideDevURL string, timeoutSec 
 }
 
 func main() {
+	dedupeFile = os.Getenv("GATEWAY_STORE_PATH")
+	if dedupeFile == "" {
+		dedupeFile = filepath.Join("data", "gateway.db")
+	}
+	var err error
+	gatewayStore, err = gatewaystore.Open(dedupeFile)
+	if err != nil {
+		log.Fatalf("open gateway message store: %v", err)
+	}
+	defer gatewayStore.Close()
+	dedupeHealthy.Store(true)
+
 	port := flag.Int("port", 8081, "listen port")
 	flag.StringVar(&deviceToken, "device-token", "", "require/expect this X-Device-Token")
 	controlToken := flag.String("control-token", "", "control token for /control API checks")

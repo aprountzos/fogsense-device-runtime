@@ -7,11 +7,24 @@ sidebar_position: 3
 
 # Gateway Communication
 
-The device runtime communicates with the Fog Gateway using HTTP. It handles registration, telemetry delivery, and event reporting with built-in reliability guarantees.
+The device runtime supports HTTP (default) and MQTT 5.0 as alternative gateway transports. Both transports handle registration, telemetry delivery and event reporting. The device's local API remains HTTP in either mode.
+
+## Select a transport
+
+Set `GATEWAY_TRANSPORT=http` (the default) to use the existing HTTP gateway contract, or `GATEWAY_TRANSPORT=mqtt` to use an MQTT 5 broker.
+
+| Setting | HTTP | MQTT |
+|---|---|---|
+| Gateway configuration | `GATEWAY_URL` | `MQTT_BROKER_URL` |
+| Authentication | `GATEWAY_TOKEN` (falls back to `DEVICE_TOKEN`) | `MQTT_USERNAME` + `MQTT_PASSWORD` |
+| Delivery | HTTP POST and response status | MQTT QoS 1 and application registration acknowledgement |
+| Device API | HTTP | HTTP (unchanged) |
+
+See the [MQTT 5 guide](../guides/mqtt.md) for broker setup, topic names, commands and security recommendations.
 
 ## Communication Endpoints
 
-The device calls three endpoints on the gateway:
+When HTTP is selected, the device calls three endpoints on the gateway:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -100,15 +113,15 @@ Messages are delivered with these guarantees:
 - When the queue is full, the **oldest messages are dropped**
 - Dropped messages are counted in the `dropped` stat
 
-## Headers
+## HTTP Headers
 
-Every request to the gateway includes:
+Every HTTP request to the gateway includes:
 
 | Header | Value |
 |---|---|
 | `Content-Type` | `application/json` |
 | `X-Device-Id` | The device's ID |
-| `X-Device-Token` | The shared secret (if `DEVICE_TOKEN` is set) |
+| `X-Device-Token` | `GATEWAY_TOKEN`, falling back to `DEVICE_TOKEN` for compatibility |
 
 ## Monitoring
 
@@ -131,3 +144,7 @@ The gateway client's internal stats are available via `GET /control/status` (whe
 | `queued` | Number of messages waiting for delivery |
 | `dropped` | Number of messages dropped due to queue overflow |
 | `seq` | Current sequence number (total messages created) |
+
+## MQTT transport
+
+When MQTT is selected, the runtime publishes to per-device `register`, `telemetry`, and `events` topics and subscribes to `commands` and `register/ack`. QoS 1 is at-least-once; gateway consumers must deduplicate by `(deviceId, bootId, seq)`. A broker PUBACK is not an application registration decision: the runtime waits for a matching registration acknowledgement before flushing queued messages. See the [MQTT 5 guide](../guides/mqtt.md) and the [MQTT gateway contract](https://github.com/aprountzos/fogsense-device-runtime/blob/feat/mqtt-device-transport/contract/mqtt-gateway.md).

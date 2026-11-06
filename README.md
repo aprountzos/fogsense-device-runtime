@@ -23,6 +23,12 @@
 
 FogSense Device Runtime is a reference Go runtime for simulated IoT devices. Each device runs in its own container and exposes a standard HTTP API. The gateway or platform is responsible for discovery, registration, orchestration, and command routing.
 
+## Documentation and releases
+
+- [Documentation source](docs/docs/intro.md)
+- [Changelog](CHANGELOG.md)
+- [GitHub Releases](https://github.com/aprountzos/fogsense-device-runtime/releases)
+
 ## Overview
 
 <div align="left">
@@ -82,6 +88,57 @@ DEVICE_SPEC_FILE=examples/smart-light.yaml \
 go run .
 ```
 
+### MQTT 5 transport
+
+HTTP remains the default gateway transport. Devices can alternatively publish registration, telemetry, and events over MQTT 5 without changing their local HTTP device API.
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml up --build
+```
+
+The local playground starts a Mosquitto broker, an MQTT mock gateway, and YAML-configured smart-light and temperature-sensor devices. Both mock gateways use the shared SQLite message store to commit accepted telemetry/event payloads and their deduplication keys before acknowledging them. The HTTP gateway defaults to `data/gateway.db` (`GATEWAY_STORE_PATH`); the MQTT gateway defaults to `data/mqtt-gateway.db` and accepts `--store-file` (with `--dedupe-file` retained as a compatibility alias). Keep the gateway data volumes persistent across restarts. The HTTP mock gateway uses a SQLite database at `data/gateway.db` by default (`GATEWAY_STORE_PATH` overrides the path); mount that file on persistent storage to retain accepted telemetry/events and deduplication records across restarts.
+
+The device subscribes to its own command topic and publishes command acknowledgements:
+
+| Direction | Topic |
+| --- | --- |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/register` |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/telemetry` |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/events` |
+| Gateway → device | `fogsense/v1/devices/{deviceId}/commands` |
+| Gateway → device | `fogsense/v1/devices/{deviceId}/register/ack` |
+| Device → gateway | `fogsense/v1/devices/{deviceId}/commands/ack` |
+| Gateway → device | `fogsense/v1/devices/{deviceId}/delivery/ack` |
+
+Outbound messages include a stable `messageId` plus `deviceId`, `bootId`, `seq`, and `ts`. The runtime uses QoS 1 and retains messages in a shared disk-backed outbox until the gateway application acknowledges them. The gateway deduplicates by `(deviceId, messageId)`. Registration still uses its own application-level acknowledgement. The outbox is bounded to 500 messages and defaults to `data/outbox-<DEVICE_ID>.json`; persist this path across restarts. MQTT command payloads use the same JSON command shape as `POST /commands`.
+
+Send a command to the demo light from another terminal:
+
+```bash
+docker compose -f docker-compose.mqtt.example.yml exec mqtt-broker \
+  mosquitto_pub -h localhost \
+  -t fogsense/v1/devices/mqtt-light-1/commands \
+  -m '{"commandId":"mqtt-demo-1","name":"TURN_ON"}'
+```
+
+The playground broker allows anonymous access for local development only. For a real deployment, use an MQTT broker with TLS and per-device credentials/ACLs. A TLS-authenticated local example is available in `docker-compose.mqtt.secure.example.yml`. A device should be allowed to publish only to its own registration, telemetry, events, and acknowledgement topics, and subscribe only to its own command topic.
+
+To use a broker with credentials:
+
+```powershell
+$env:DEVICE_ID = "light-1"
+$env:GATEWAY_TRANSPORT = "mqtt"
+$env:MQTT_BROKER_URL = "mqtts://broker.example.com:8883"
+$env:MQTT_CLIENT_ID = "fogsense-light-1"
+$env:MQTT_USERNAME = "light-1"
+$env:MQTT_PASSWORD = "<inject-from-secret-store>"
+$env:DEVICE_TOKEN = "<separate-local-http-api-token>"
+$env:DEVICE_SPEC_FILE = "examples/smart-light.yaml"
+go run .
+```
+
+For HTTP, `GATEWAY_TOKEN` is sent to the gateway as `X-Device-Token`; it falls back to `DEVICE_TOKEN` for backward compatibility. `DEVICE_TOKEN` protects the device's local HTTP API. Use `https://` for encrypted HTTP connections. MQTT broker credentials are separate from both HTTP tokens. Both transports use the same persistent outbox and stable message IDs.
+
 ## Package registry
 
 Published images are available from the following registries:
@@ -99,9 +156,15 @@ Use the registry that matches your environment and access-control model.
 | `Dockerfile` | Multi-stage Docker build producing a minimal static container |
 | `contract/device-spec.schema.yaml` | Schema for the device spec (structure + semantic rules in `description`) |
 | `contract/device-api.openapi.yaml` | API exposed by each device (`/info`, `/state`, `/commands`, `/health`) |
-| `contract/gateway-api.openapi.yaml` | API that your Fog Gateway must implement (`/devices/register`, `.../telemetry`, `.../events`) |
+| `contract/gateway-api.openapi.yaml` | HTTP gateway API contract |
+| `contract/mqtt-gateway.md` | MQTT 5 topics, registration acknowledgement, QoS, and security contract |
+| `contract/delivery-guarantees.md` | Shared HTTP/MQTT delivery, persistence, deduplication, and security roadmap |
 | `examples/*.yaml` | Sample specs (smart light, temperature sensor, thermostat, door lock) |
-| `cmd/mock-gateway/` | Mock gateway for testing before you write your own |
+| `cmd/mock-gateway/` | HTTP mock gateway and conformance runner |
+| `cmd/mock-mqtt-gateway/` | MQTT mock gateway subscriber for local testing |
+| `docker-compose.mqtt.example.yml` | Local Mosquitto + MQTT device playground |
+| `docker-compose.mqtt.secure.example.yml` | TLS/authenticated MQTT playground |
+| `examples/mosquitto-secure.conf`, `examples/mosquitto-acl.example` | TLS broker configuration and per-device topic ACL template |
 | `docs/` | Docusaurus documentation website |
 | `MAINTAINERS.md` | Publishing, release, and maintainer notes |
 
@@ -226,14 +289,18 @@ If `DEVICE_TOKEN` is enabled, add `-H 'X-Device-Token: <token>'` to each request
 docker build -t fogsense-device-runtime .
 
 docker run --rm --name light-1 --network <your-gateway-network> \
+  -v fogsense-light-data:/data \
   -e DEVICE_ID=light-1 \
   -e GATEWAY_URL=http://fog-gateway:8081 \
   -e DEVICE_TOKEN=<device-token> \
+  -e OUTBOX_PATH=/data/outbox.json \
+  -e DEVICE_STATE_PATH=/data/device-state.db \
   -e DEVICE_SPEC_B64="$(base64 -w0 examples/smart-light.yaml)" \
   fogsense-device-runtime
 ```
 
-> On macOS, `base64` does not support `-w0`; use `base64 -i file | tr -d '\n'` instead.
+> On macOS, `base64` does not support `-w0`; use `base64 -i file | tr -d '
+'` instead.
 
 ### PowerShell
 
@@ -243,9 +310,12 @@ docker build -t fogsense-device-runtime .
 $spec = [Convert]::ToBase64String([IO.File]::ReadAllBytes("examples/smart-light.yaml"))
 
 docker run --rm --name light-1 --network <your-gateway-network> `
+  -v fogsense-light-data:/data `
   -e DEVICE_ID=light-1 `
   -e GATEWAY_URL=http://fog-gateway:8081 `
   -e DEVICE_TOKEN=<device-token> `
+  -e OUTBOX_PATH=/data/outbox.json `
+  -e DEVICE_STATE_PATH=/data/device-state.db `
   -e DEVICE_SPEC_B64=$spec `
   fogsense-device-runtime
 ```
@@ -263,14 +333,20 @@ docker compose -f docker-compose.example.yml up --build
 | Variable | Required | Description |
 | --- | --- | --- |
 | `DEVICE_ID` | yes | Unique ID, `[A-Za-z0-9_.-]{1,64}` |
-| `GATEWAY_URL` | yes | Base URL of the Fog Gateway, e.g. `http://fog-gateway:8081` |
+| `GATEWAY_TRANSPORT` | no | `http` (default) or `mqtt` |
+| `GATEWAY_URL` | HTTP only | Base URL of the Fog Gateway, e.g. `https://fog-gateway:8081` |
+| `MQTT_BROKER_URL` | MQTT only | Broker URL, e.g. `mqtt://mqtt-broker:1883` or `mqtts://broker.example.com:8883` |
+| `MQTT_CLIENT_ID` | no | MQTT client ID (default `fogsense-<DEVICE_ID>`) |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | no | Optional MQTT CONNECT credentials; set both or neither |
 | `DEVICE_SPEC_B64` / `DEVICE_SPEC` / `DEVICE_SPEC_FILE` | one of three | Device spec as base64 YAML, YAML string, or file path (default `/config/spec.yaml`) |
-| `DEVICE_TOKEN` | no | Shared secret; the device sends it as `X-Device-Token` and requires it from anyone calling its API |
+| `DEVICE_TOKEN` | no | Token required by the device local HTTP API; also used as the HTTP gateway token when `GATEWAY_TOKEN` is unset |
+| `GATEWAY_TOKEN` | no | HTTP gateway token sent as `X-Device-Token`; defaults to `DEVICE_TOKEN` for backward compatibility |
 | `ADVERTISE_URL` | no | URL the gateway uses to reach the device (default `http://<hostname>:<PORT>`) |
 | `PORT` | no | Default `8080` |
 | `REGISTER_INTERVAL_SEC` | no | Heartbeat registration period; default `30` |
 | `TIME_SCALE` | no | Device time speed-up factor for testing; default `1` |
 | `SEED` | no | Integer used for reproducible data generation |
+| `DEVICE_STATE_PATH` | no | SQLite database for durable device state and command idempotency (default `data/device-state-<DEVICE_ID>.db`) |
 
 If the spec is invalid, the container does not start. It prints all errors (with paths) as JSON lines and exits with code `2`.
 
@@ -278,11 +354,11 @@ If the spec is invalid, the container does not start. It prints all errors (with
 
 **Telemetry.** Each metric produces a value every `intervalSec` seconds: a random walk within `[min, max]` plus Gaussian noise (`noise`). With probability `anomalyRate`, the value goes out of range.
 
-**State and commands.** A command validates its parameters, applies its effects, and returns the new state. Commands are idempotent by `commandId`. If the state changed, the device also sends a `STATE_CHANGED` event.
+**State and commands.** A command validates its parameters, applies its effects, and returns the new state. Declared device state, the last 1,000 command results, runtime fault controls, pending telemetry batches, pending device events, and pending MQTT command acknowledgements are committed to local SQLite. Replaying a `commandId` after restart returns the original result without reapplying effects. An inbound MQTT command is acknowledged to the broker only after its execution result is durably queued in SQLite; pending results are then transferred to the persistent transport outbox. Active OFFLINE, SPIKE, and FLOOD controls are restored using wall-clock expiry timestamps, so time spent stopped counts toward their duration. Runtime transitions and injected faults are persisted before they are acknowledged or announced. If persistence fails, the change is rolled back and the device returns `503 PERSISTENCE_FAILED`. Keep `DEVICE_STATE_PATH` on persistent storage. A corrupt, incompatible, or wrong-device snapshot stops startup rather than resetting state. If declared state changes, the device also sends a `STATE_CHANGED` event.
 
 **OFFLINE.** With probability `offlineRate` per second, the device goes offline for a few seconds. It first sends `STATUS_CHANGED(OFFLINE)` and then goes silent: no telemetry, no heartbeat, and commands are not processed until it returns online.
 
-**Reliability toward the gateway.** Every message carries `(bootId, seq)` and is delivered at least once, in order. If the gateway does not respond, the device keeps up to 500 messages in memory and retries them.
+**Reliability toward the gateway.** Every outbound message carries a stable `messageId` plus `(bootId, seq)` and remains in a disk-backed, 500-message outbox until the gateway application acknowledges it. HTTP and MQTT share the same outbox. Telemetry batches, state/status events, and MQTT command acknowledgements also remain in device-side SQLite pending queues until durably handed to the outbox. Pending queues retain stable message IDs across a crash during handoff; telemetry sampling and state-changing operations apply backpressure rather than silently discarding required messages.
 
 All durations are in device time unless `TIME_SCALE` is set.
 
@@ -339,7 +415,7 @@ go run .
 
 ## What it is not
 
-It does not persist anything; each restart begins from the initial state. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
+Declared state, command idempotency history, active fault-injection controls, and telemetry generator checkpoints persist locally. Metric progression, next emission times, last readings, and the telemetry PRNG state are checkpointed when readings are generated, not on every 250 ms simulation tick. Generated batches and state/status events remain in bounded device-side pending queues until durably transferred to the persistent HTTP/MQTT outbox, retaining stable message IDs across a crash during handoff. Sampling pauses if the 500-batch pending queue fills. Keep both `DEVICE_STATE_PATH` and `OUTBOX_PATH` on persistent storage. It is not safe for public exposure because the token is a shared secret sent over plain HTTP, and `cmd/mock-gateway` is not intended for production use.
 
 ## Contributing & Community
 

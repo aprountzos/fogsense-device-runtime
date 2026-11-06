@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"time"
 
 	"fogsense-device-runtime/pkg/device"
+	"fogsense-device-runtime/pkg/devicestore"
 	"fogsense-device-runtime/pkg/gateway"
 	"fogsense-device-runtime/pkg/server"
 	"fogsense-device-runtime/pkg/spec"
@@ -80,9 +83,51 @@ func main() {
 		fatal("DEVICE_ID is required and must match [A-Za-z0-9_.-]{1,64}", nil)
 	}
 
+	gatewayTransport := strings.ToLower(strings.TrimSpace(os.Getenv("GATEWAY_TRANSPORT")))
+	if gatewayTransport == "" {
+		gatewayTransport = "http"
+	}
+	if gatewayTransport != "http" && gatewayTransport != "mqtt" {
+		fatal("GATEWAY_TRANSPORT must be http or mqtt", nil)
+	}
 	gatewayURL := strings.TrimRight(os.Getenv("GATEWAY_URL"), "/")
-	if !strings.HasPrefix(gatewayURL, "http://") && !strings.HasPrefix(gatewayURL, "https://") {
-		fatal("GATEWAY_URL is required and must start with http:// or https://", nil)
+	mqttBrokerURL := strings.TrimSpace(os.Getenv("MQTT_BROKER_URL"))
+	mqttClientID := strings.TrimSpace(os.Getenv("MQTT_CLIENT_ID"))
+	mqttUsername := os.Getenv("MQTT_USERNAME")
+	mqttPassword := os.Getenv("MQTT_PASSWORD")
+	mqttCAFile := os.Getenv("MQTT_CA_FILE")
+	mqttClientCertFile := os.Getenv("MQTT_CLIENT_CERT_FILE")
+	mqttClientKeyFile := os.Getenv("MQTT_CLIENT_KEY_FILE")
+	if gatewayTransport == "http" {
+		if !strings.HasPrefix(gatewayURL, "http://") && !strings.HasPrefix(gatewayURL, "https://") {
+			fatal("GATEWAY_URL is required for HTTP transport and must start with http:// or https://", nil)
+		}
+	} else {
+		if !strings.HasPrefix(mqttBrokerURL, "mqtt://") && !strings.HasPrefix(mqttBrokerURL, "mqtts://") && !strings.HasPrefix(mqttBrokerURL, "tcp://") {
+			fatal("MQTT_BROKER_URL is required and must start with mqtt:// or mqtts://", nil)
+		}
+		parsedBrokerURL, err := url.Parse(mqttBrokerURL)
+		if err != nil || parsedBrokerURL.Host == "" {
+			fatal("MQTT_BROKER_URL must include a valid broker host", nil)
+		}
+		if (mqttUsername == "") != (mqttPassword == "") {
+			fatal("MQTT_USERNAME and MQTT_PASSWORD must either both be set or both be empty", nil)
+		}
+		if (mqttClientCertFile == "") != (mqttClientKeyFile == "") {
+			fatal("MQTT_CLIENT_CERT_FILE and MQTT_CLIENT_KEY_FILE must either both be set or both be empty", nil)
+		}
+		if strings.HasPrefix(mqttBrokerURL, "mqtts://") && mqttUsername == "" && mqttClientCertFile == "" {
+			fatal("MQTT over TLS requires per-device username/password or a client certificate", nil)
+		}
+		if !strings.HasPrefix(mqttBrokerURL, "mqtts://") && (mqttUsername != "" || mqttPassword != "") {
+			logJSON("warn", "MQTT credentials are being sent without TLS", map[string]interface{}{"broker": mqttBrokerURL})
+		}
+		if err := gateway.ValidateMQTTTLSConfig(mqttCAFile, mqttClientCertFile, mqttClientKeyFile); err != nil {
+			fatal("invalid MQTT TLS configuration", map[string]interface{}{"error": err.Error()})
+		}
+		if mqttClientID == "" {
+			mqttClientID = "fogsense-" + deviceID
+		}
 	}
 
 	port := os.Getenv("PORT")
@@ -115,7 +160,15 @@ func main() {
 	}
 
 	deviceToken := os.Getenv("DEVICE_TOKEN")
+	gatewayToken := os.Getenv("GATEWAY_TOKEN")
+	if gatewayToken == "" {
+		gatewayToken = deviceToken // Backward compatibility with the original shared token setting.
+	}
 	controlToken := os.Getenv("CONTROL_TOKEN")
+	outboxPath := strings.TrimSpace(os.Getenv("OUTBOX_PATH"))
+	if outboxPath == "" {
+		outboxPath = filepath.Join("data", "outbox-"+deviceID+".json")
+	}
 
 	hostname, _ := os.Hostname()
 	advertiseURL := os.Getenv("ADVERTISE_URL")
@@ -137,25 +190,48 @@ func main() {
 		fatal(fmt.Sprintf("device spec has %d error(s), refusing to start", len(valRes.Errors)), nil)
 	}
 
-	// Initialize Device Engine
-	dev := device.NewDevice(device.Config{
-		DeviceID:  deviceID,
-		Spec:      valRes.Spec,
-		Seed:      seedPtr,
-		TimeScale: timeScale,
+	// Initialize durable device state and command idempotency storage.
+	statePath := strings.TrimSpace(os.Getenv("DEVICE_STATE_PATH"))
+	if statePath == "" { statePath = filepath.Join("data", "device-state-"+deviceID+".db") }
+	stateStore, err := devicestore.Open(statePath)
+	if err != nil { fatal("cannot initialize persistent device state", map[string]interface{}{"error":err.Error(),"statePath":statePath}) }
+	defer stateStore.Close()
+
+	// A corrupt or incompatible snapshot must stop startup; never reset it silently.
+	dev, err := device.NewDeviceWithError(device.Config{
+		DeviceID:deviceID, Spec:valRes.Spec, Seed:seedPtr, TimeScale:timeScale, Store:stateStore,
 	})
+	if err != nil { fatal("cannot restore persistent device state", map[string]interface{}{"error":err.Error(),"statePath":statePath}) }
 
 	// Initialize Gateway Client
 	gwClient := gateway.NewClient(gateway.Config{
 		GatewayURL:          gatewayURL,
 		Device:              dev,
 		Endpoint:            advertiseURL,
-		Token:               deviceToken,
+		Token:               gatewayToken,
 		RegisterIntervalSec: registerIntervalSec,
+		Transport:           gatewayTransport,
+		MQTTURL:             mqttBrokerURL,
+		MQTTClientID:        mqttClientID,
+		MQTTUsername:        mqttUsername,
+		MQTTPassword:        mqttPassword,
+		MQTTCAFile:          mqttCAFile,
+		MQTTClientCertFile:  mqttClientCertFile,
+		MQTTClientKeyFile:   mqttClientKeyFile,
+		OutboxPath:          outboxPath,
+	})
+	if err := gwClient.InitializationError(); err != nil {
+		fatal("cannot initialize persistent gateway outbox", map[string]interface{}{"error": err.Error(), "outboxPath": outboxPath})
+	}
+	outboxStats := gwClient.Stats()
+	logJSON("info", "outbox ready", map[string]interface{}{
+		"path": outboxPath,
+		"queued": outboxStats.Queued,
+		"seq": outboxStats.Seq,
+		"dropped": outboxStats.Dropped,
 	})
 
 	dev.OnEvent(func(evt device.Event) {
-		gwClient.EnqueueEvent(evt)
 		if evt.Type == "STATUS_CHANGED" && evt.Status == "ONLINE" {
 			gwClient.Kick()
 		}
@@ -176,7 +252,9 @@ func main() {
 
 	// Start Simulation Loop (every 250ms)
 	stopLoop := make(chan struct{})
+	loopDone := make(chan struct{})
 	go func() {
+		defer close(loopDone)
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -188,8 +266,45 @@ func main() {
 			case now := <-ticker.C:
 				dt := now.Sub(last).Seconds()
 				last = now
-				readings := dev.Tick(dt)
-				gwClient.EnqueueTelemetry(readings)
+				dev.Tick(dt)
+				for _, item := range dev.PendingEvents() {
+					if !gwClient.EnqueueEvent(item.Event, item.MessageID) {
+						break
+					}
+					if err := dev.AcknowledgeEvent(item.MessageID); err != nil {
+						logJSON("error", "failed to acknowledge event outbox handoff", map[string]interface{}{
+							"messageId": item.MessageID,
+							"eventType": item.Event.Type,
+							"error": err.Error(),
+						})
+						break
+					}
+				}
+				for _, batch := range dev.PendingTelemetry() {
+					if !gwClient.EnqueueTelemetry(batch.Readings, batch.MessageID) {
+						break
+					}
+					if err := dev.AcknowledgeTelemetry(batch.MessageID); err != nil {
+						logJSON("error", "failed to acknowledge telemetry outbox handoff", map[string]interface{}{
+							"messageId": batch.MessageID,
+							"error": err.Error(),
+						})
+						break
+					}
+				}
+				for _, ack := range dev.PendingCommandAcks() {
+					if !gwClient.EnqueueCommandAck(ack) {
+						break
+					}
+					if err := dev.AcknowledgeCommandAck(ack.MessageID); err != nil {
+						logJSON("error", "failed to acknowledge command outbox handoff", map[string]interface{}{
+							"messageId": ack.MessageID,
+							"commandId": ack.CommandID,
+							"error": err.Error(),
+						})
+						break
+					}
+				}
 			}
 		}
 	}()
@@ -200,9 +315,15 @@ func main() {
 		if controlToken != "" {
 			controlState = "enabled"
 		}
-		authState := "none"
+		gatewayAuthState := "none"
+		if gatewayTransport == "http" && gatewayToken != "" {
+			gatewayAuthState = "http-token"
+		} else if gatewayTransport == "mqtt" && mqttUsername != "" {
+			gatewayAuthState = "mqtt-username-password"
+		}
+		deviceAPIAuthState := "none"
 		if deviceToken != "" {
-			authState = "token"
+			deviceAPIAuthState = "token"
 		}
 
 		logJSON("info", "device runtime started", map[string]interface{}{
@@ -211,9 +332,14 @@ func main() {
 			"version":   valRes.Spec.Version,
 			"port":      port,
 			"endpoint":  advertiseURL,
-			"gateway":   gatewayURL,
+			"gatewayTransport": gatewayTransport,
+			"gateway":          gatewayURL,
+			"mqttBroker":       mqttBrokerURL,
+			"outboxPath":       outboxPath,
+			"deviceStatePath": statePath,
 			"timeScale": timeScale,
-			"auth":      authState,
+			"gatewayAuth": gatewayAuthState,
+			"deviceAPIAuth": deviceAPIAuthState,
 			"control":   controlState,
 		})
 
@@ -231,6 +357,7 @@ func main() {
 
 	logJSON("info", "shutting down", nil)
 	close(stopLoop)
+	<-loopDone
 	gwClient.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

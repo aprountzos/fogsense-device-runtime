@@ -1,0 +1,27 @@
+# Replace these example usernames/device IDs with the credentials you provision.
+# Device identity is mapped to the MQTT username (%u), not trusted from payload JSON.
+user mqtt-light-1
+topic write fogsense/v1/devices/mqtt-light-1/register
+topic write fogsense/v1/devices/mqtt-light-1/telemetry
+topic write fogsense/v1/devices/mqtt-light-1/events
+topic write fogsense/v1/devices/mqtt-light-1/commands/ack
+topic read fogsense/v1/devices/mqtt-light-1/commands
+topic read fogsense/v1/devices/mqtt-light-1/register/ack
+topic read fogsense/v1/devices/mqtt-light-1/delivery/ack
+
+user mqtt-sensor-1
+topic write fogsense/v1/devices/mqtt-sensor-1/register
+topic write fogsense/v1/devices/mqtt-sensor-1/telemetry
+topic write fogsense/v1/devices/mqtt-sensor-1/events
+topic write fogsense/v1/devices/mqtt-sensor-1/commands/ack
+topic read fogsense/v1/devices/mqtt-sensor-1/commands
+topic read fogsense/v1/devices/mqtt-sensor-1/register/ack
+topic read fogsense/v1/devices/mqtt-sensor-1/delivery/ack
+
+user fogsense-mock-gateway
+topic read fogsense/v1/devices/+/register
+topic read fogsense/v1/devices/+/telemetry
+topic read fogsense/v1/devices/+/events
+topic read fogsense/v1/devices/+/commands/ack
+topic write fogsense/v1/devices/+/register/ack
+topic write fogsense/v1/devices/+/delivery/ack

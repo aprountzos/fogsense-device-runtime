@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feat/**"]
     paths:
       - 'main.go'
       - 'go.mod'
@@ -13,8 +13,10 @@ on:
       - 'examples/**'
       - 'Dockerfile'
       - 'docker-compose.example.yml'
+      - 'docker-compose.mqtt.example.yml'
+      - 'docker-compose.mqtt.secure.example.yml'
       - 'docs/**'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
     paths:
@@ -27,8 +29,10 @@ on:
       - 'examples/**'
       - 'Dockerfile'
       - 'docker-compose.example.yml'
+      - 'docker-compose.mqtt.example.yml'
+      - 'docker-compose.mqtt.secure.example.yml'
       - 'docs/**'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/**'
 
 jobs:
   test-go:
@@ -50,6 +54,172 @@ jobs:
       - name: Run Go tests
         run: go test -v ./...
 
+      - name: Run race detector
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+
+      - name: Vet Go packages
+        run: go vet ./...
+
+      - name: Build Go packages
+        run: go build ./...
+
+      - name: Build all binaries
+        run: |
+          go build -o fogsense-device-runtime .
+          go build -o fogsense-mock-gateway ./cmd/mock-gateway
+          go build -o fogsense-mock-mqtt-gateway ./cmd/mock-mqtt-gateway
+
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate Compose configurations
+        run: |
+          docker compose -f docker-compose.example.yml config
+          MQTT_GATEWAY_PASSWORD=ci-gateway MQTT_LIGHT_PASSWORD=ci-light MQTT_SENSOR_PASSWORD=ci-sensor \
+            docker compose -f docker-compose.mqtt.secure.example.yml config
+
+      - name: Build runtime image
+        run: docker build -t fogsense-device-runtime:ci .
+
+      - name: Run HTTP playground integration test
+        run: |
+          docker compose -f docker-compose.example.yml up --build -d
+          ready=0
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.example.yml logs mock-gateway)"
+            if echo "$logs" | grep -q 'REGISTER light-1' && echo "$logs" | grep -q 'TELEMETRY sensor-1'; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          echo "$logs"
+          test "$ready" -eq 1
+          docker compose -f docker-compose.example.yml down -v
+
+      - name: Run MQTT playground integration test
+        run: |
+          docker compose -f docker-compose.mqtt.example.yml up --build -d
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-sensor mqtt-gateway mqtt-broker)"
+            if echo "$logs" | grep -q "/telemetry"; then
+              break
+            fi
+            sleep 2
+          done
+          echo "$logs"
+          echo "$logs" | grep -q "registered with MQTT gateway"
+          echo "$logs" | grep -q "/telemetry"
+
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker \
+            mosquitto_pub -h localhost \
+            -t fogsense/v1/devices/mqtt-light-1/commands \
+            -m '{"commandId":"ci-command-1","name":"TURN_ON"}'
+
+          sleep 3
+          logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-gateway)"
+          echo "$logs"
+          echo "$logs" | grep -q "/commands/ack"
+          echo "$logs" | grep -q "/delivery/ack"
+
+      - name: Verify MQTT gateway deduplication survives restart
+        run: |
+          payload='{"deviceId":"mqtt-light-1","bootId":"ci-boot","messageId":"ci-gateway-restart-1","seq":9001,"ts":"2026-11-06T00:00:00Z","readings":[{"metric":"temperature","value":21.5,"ts":"2026-11-06T00:00:00Z"}]}'
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker mosquitto_pub -h localhost -q 1 -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
+
+          accepted=0
+          for attempt in $(seq 1 20); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-gateway)"
+            if echo "$logs" | grep -q 'ci-gateway-restart-1'; then
+              accepted=1
+              break
+            fi
+            sleep 1
+          done
+          test "$accepted" -eq 1
+
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-gateway
+          ready=0
+          for attempt in $(seq 1 30); do
+            if docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-gateway wget -qO- http://127.0.0.1:8081/health >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" -eq 1
+
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-broker mosquitto_pub -h localhost -q 1 -t fogsense/v1/devices/mqtt-light-1/telemetry -m "$payload"
+
+          duplicate=0
+          for attempt in $(seq 1 20); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs --since=1m mqtt-gateway)"
+            if echo "$logs" | grep -q 'duplicate MQTT message ci-gateway-restart-1'; then
+              duplicate=1
+              break
+            fi
+            sleep 1
+          done
+          echo "$logs"
+          test "$duplicate" -eq 1
+
+      - name: Verify MQTT recovery after broker restart
+        run: |
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-broker
+
+          recovered=0
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-light mqtt-sensor mqtt-gateway)"
+            light_registers="$(echo "$logs" | grep -c 'MQTT fogsense/v1/devices/mqtt-light-1/register ' || true)"
+            sensor_registers="$(echo "$logs" | grep -c 'MQTT fogsense/v1/devices/mqtt-sensor-1/register ' || true)"
+            sensor_telemetry="$(echo "$logs" | grep -c 'MQTT fogsense/v1/devices/mqtt-sensor-1/telemetry ' || true)"
+
+            if [ "$light_registers" -ge 2 ] && [ "$sensor_registers" -ge 2 ] && [ "$sensor_telemetry" -ge 2 ]; then
+              recovered=1
+              break
+            fi
+            sleep 2
+          done
+
+          echo "$logs"
+          test "$recovered" -eq 1
+
+      - name: Verify device outbox survives process restart
+        run: |
+          docker compose -f docker-compose.mqtt.example.yml stop mqtt-broker
+          sleep 7
+
+          # The sensor generates telemetry periodically, so it must have queued
+          # messages while the broker is offline before we restart the process.
+          docker compose -f docker-compose.mqtt.example.yml exec -T mqtt-sensor sh -c 'grep -q messageId /data/outbox.json'
+          docker compose -f docker-compose.mqtt.example.yml restart mqtt-sensor
+
+          logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-sensor)"
+          echo "$logs"
+          echo "$logs" | grep -q '"msg":"outbox ready"'
+
+          docker compose -f docker-compose.mqtt.example.yml start mqtt-broker
+          recovered=0
+          for attempt in $(seq 1 30); do
+            logs="$(docker compose -f docker-compose.mqtt.example.yml logs mqtt-sensor mqtt-gateway)"
+            if echo "$logs" | grep -q 'registered with MQTT gateway' && echo "$logs" | grep -q '/telemetry'; then
+              recovered=1
+              break
+            fi
+            sleep 2
+          done
+          echo "$logs"
+          test "$recovered" -eq 1
+
+      - name: Stop MQTT playground
+        if: always()
+        run: docker compose -f docker-compose.mqtt.example.yml down -v
 
   build-docs:
     name: Build Documentation

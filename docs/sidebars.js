@@ -52,8 +52,15 @@ const sidebars = {
         'guides/configuration',
         'guides/docker',
         'guides/mock-gateway',
+        'guides/mqtt',
         'guides/testing',
       ],
+    },
+    {
+      type: 'category',
+      label: 'Project',
+      collapsed: true,
+      items: ['versioning'],
     },
   ],
 };

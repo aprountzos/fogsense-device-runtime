@@ -5,16 +5,20 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"fogsense-device-runtime/pkg/device"
+
+	"github.com/eclipse/paho.golang/autopaho"
 )
 
 const (
@@ -25,8 +29,9 @@ const (
 )
 
 type OutboundMessage struct {
-	Path string
-	Body map[string]interface{}
+	MessageID string                 `json:"messageId"`
+	Path      string                 `json:"path"`
+	Body      map[string]interface{} `json:"body"`
 }
 
 type ClientStats struct {
@@ -34,10 +39,20 @@ type ClientStats struct {
 	Queued     int   `json:"queued"`
 	Dropped    int64 `json:"dropped"`
 	Seq        int64 `json:"seq"`
+	OutboxPath string `json:"outboxPath,omitempty"`
+	OutboxHealthy bool `json:"outboxHealthy"`
+	OldestQueuedAt string `json:"oldestQueuedAt,omitempty"`
+	OldestMessageAgeSeconds float64 `json:"oldestMessageAgeSeconds"`
+	FlushFailures int `json:"flushFailures"`
+	RegisterFailures int `json:"registerFailures"`
+	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
+	NextRetryAt string `json:"nextRetryAt,omitempty"`
+	LastError string `json:"lastError,omitempty"`
 }
 
 type Client struct {
 	mu                  sync.Mutex
+	commandRetryWG     sync.WaitGroup
 	gatewayURL          string
 	dev                 *device.Device
 	endpoint            string
@@ -45,12 +60,30 @@ type Client struct {
 	registerIntervalSec time.Duration
 	seq                 int64
 	queue               []OutboundMessage
+	outboxPath          string
+	outboxErr           error
+	outboxHealthy       bool
+	lastSuccessAt       time.Time
+	nextFlushAt         time.Time
+	lastError           string
 	dropped             int64
 	registered          bool
 	stopped             bool
 	flushFailures       int
 	registerFailures    int
 	httpClient          *http.Client
+	transport           string
+	mqttURL             string
+	mqttClientID        string
+	mqttUsername        string
+	mqttPassword        string
+	mqttCAFile          string
+	mqttClientCertFile  string
+	mqttClientKeyFile   string
+	mqtt                *autopaho.ConnectionManager
+	mqttReady           bool
+	mqttAckWaiters      map[string]chan bool
+	mqttCancel          context.CancelFunc
 	kickChan            chan struct{}
 	stopChan            chan struct{}
 }
@@ -61,6 +94,15 @@ type Config struct {
 	Endpoint            string
 	Token               string
 	RegisterIntervalSec int
+	Transport           string
+	MQTTURL             string
+	MQTTClientID        string
+	MQTTUsername        string
+	MQTTPassword        string
+	MQTTCAFile          string
+	MQTTClientCertFile  string
+	MQTTClientKeyFile   string
+	OutboxPath          string
 }
 
 func generateUUID() string {
@@ -72,18 +114,47 @@ func generateUUID() string {
 }
 
 func NewClient(cfg Config) *Client {
+	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
+	if transport == "" {
+		transport = "http"
+	}
 	interval := time.Duration(cfg.RegisterIntervalSec) * time.Second
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
 
+	state, outboxErr := loadOutbox(cfg.OutboxPath)
+	if outboxErr == nil && cfg.Device != nil && len(state.Queue) > 0 {
+		for i := range state.Queue {
+			state.Queue[i].Body["deviceId"] = cfg.Device.DeviceID
+			state.Queue[i].Body["bootId"] = cfg.Device.BootID
+		}
+		outboxErr = saveOutbox(cfg.OutboxPath, state)
+	}
+	if outboxErr == nil {
+		outboxErr = initializeOutbox(cfg.OutboxPath, state)
+	}
 	return &Client{
-		gatewayURL:          cfg.GatewayURL,
+		outboxPath:          cfg.OutboxPath,
+		outboxErr:           outboxErr,
+		outboxHealthy:       outboxErr == nil,
+		seq:                 state.Seq,
+		queue:               state.Queue,
+		mqttAckWaiters:      make(map[string]chan bool),
+		dropped:             state.Dropped,
+		gatewayURL:          strings.TrimRight(cfg.GatewayURL, "/"),
+		transport:           transport,
+		mqttURL:             cfg.MQTTURL,
+		mqttClientID:        cfg.MQTTClientID,
+		mqttUsername:        cfg.MQTTUsername,
+		mqttPassword:        cfg.MQTTPassword,
+		mqttCAFile:          cfg.MQTTCAFile,
+		mqttClientCertFile:  cfg.MQTTClientCertFile,
+		mqttClientKeyFile:   cfg.MQTTClientKeyFile,
 		dev:                 cfg.Device,
 		endpoint:            cfg.Endpoint,
 		token:               cfg.Token,
 		registerIntervalSec: interval,
-		queue:               make([]OutboundMessage, 0, MaxQueue),
 		httpClient: &http.Client{
 			Timeout: PostTimeout,
 		},
@@ -93,6 +164,13 @@ func NewClient(cfg Config) *Client {
 }
 
 func (c *Client) Start() {
+	if c.outboxErr != nil {
+		log.Printf("cannot start gateway client: %v", c.outboxErr)
+		return
+	}
+	if c.transport == "mqtt" {
+		go c.startMQTT()
+	}
 	go c.registerLoop()
 	go c.flushLoop()
 }
@@ -104,8 +182,21 @@ func (c *Client) Stop() {
 		return
 	}
 	c.stopped = true
+	cancel := c.mqttCancel
 	c.mu.Unlock()
 	close(c.stopChan)
+	c.commandRetryWG.Wait()
+	if cancel != nil {
+		cancel()
+	}
+	c.mu.Lock()
+	cm := c.mqtt
+	c.mu.Unlock()
+	if cm != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = cm.Disconnect(ctx)
+	}
 }
 
 func (c *Client) Kick() {
@@ -115,50 +206,102 @@ func (c *Client) Kick() {
 	}
 }
 
-func (c *Client) EnqueueTelemetry(readings []device.Reading) {
+func (c *Client) EnqueueCommandAck(ack device.PendingCommandAck) bool {
+	payload := map[string]interface{}{
+		"commandId": ack.CommandID,
+		"status": ack.Status,
+		"response": ack.Response,
+	}
+	return c.enqueueWithMessageID("/devices/commands/ack", payload, ack.MessageID)
+}
+
+func (c *Client) EnqueueTelemetry(readings []device.Reading, stableMessageID ...string) bool {
 	if len(readings) == 0 {
-		return
+		return true
 	}
 	path := fmt.Sprintf("/devices/%s/telemetry", url.PathEscape(c.dev.DeviceID))
-	c.enqueue(path, map[string]interface{}{"readings": readings})
+	messageID := ""
+	if len(stableMessageID) > 0 {
+		messageID = stableMessageID[0]
+	}
+	return c.enqueueWithMessageID(path, map[string]interface{}{"readings": readings}, messageID)
 }
 
-func (c *Client) EnqueueEvent(evt device.Event) {
+func (c *Client) EnqueueEvent(evt device.Event, stableMessageID ...string) bool {
 	path := fmt.Sprintf("/devices/%s/events", url.PathEscape(c.dev.DeviceID))
+	messageID := ""
+	if len(stableMessageID) > 0 {
+		messageID = stableMessageID[0]
+	}
+	eventID := messageID
+	if eventID == "" {
+		eventID = generateUUID()
+	}
 	payload := map[string]interface{}{
-		"eventId": generateUUID(),
-		"type":    evt.Type,
+		"eventId": eventID,
+		"type": evt.Type,
 	}
-	if evt.Status != "" {
-		payload["status"] = evt.Status
-	}
-	if evt.Reason != "" {
-		payload["reason"] = evt.Reason
-	}
-	if evt.State != nil {
-		payload["state"] = evt.State
-	}
-	if evt.Cause != nil {
-		payload["cause"] = evt.Cause
-	}
-	c.enqueue(path, payload)
+	if evt.Status != "" { payload["status"] = evt.Status }
+	if evt.Reason != "" { payload["reason"] = evt.Reason }
+	if evt.State != nil { payload["state"] = evt.State }
+	if evt.Cause != nil { payload["cause"] = evt.Cause }
+	return c.enqueueWithMessageID(path, payload, messageID)
 }
 
-func (c *Client) enqueue(path string, payload map[string]interface{}) {
+func (c *Client) enqueue(path string, payload map[string]interface{}) bool {
+	return c.enqueueWithMessageID(path, payload, "")
+}
+
+func (c *Client) enqueueWithMessageID(path string, payload map[string]interface{}, stableMessageID string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.seq++
+	if stableMessageID != "" {
+		for _, queued := range c.queue {
+			if queued.MessageID == stableMessageID {
+				return true
+			}
+		}
+	}
+	nextSeq := c.seq + 1
+	messageID := stableMessageID
+	if messageID == "" {
+		messageID = generateUUID()
+	}
+	payload["messageId"] = messageID
 	payload["deviceId"] = c.dev.DeviceID
 	payload["bootId"] = c.dev.BootID
-	payload["seq"] = c.seq
+	payload["seq"] = nextSeq
 	payload["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
 
-	c.queue = append(c.queue, OutboundMessage{Path: path, Body: payload})
-	for len(c.queue) > MaxQueue {
-		c.queue = c.queue[1:]
-		c.dropped++
+	if len(c.queue) >= MaxQueue {
+		nextDropped := c.dropped + 1
+		if err := c.persistOutboxLocked(c.seq, c.queue, nextDropped); err != nil {
+			log.Printf("outbox full and failed to persist drop counter: %v", err)
+		} else {
+			c.dropped = nextDropped
+		}
+		c.lastError = "outbox full; newest message rejected"
+		log.Printf("outbox full for device %s; rejected message %s", c.dev.DeviceID, messageID)
+		return false
 	}
+	nextQueue := append(append([]OutboundMessage(nil), c.queue...), OutboundMessage{MessageID: messageID, Path: path, Body: payload})
+	if err := c.persistOutboxLocked(nextSeq, nextQueue, c.dropped); err != nil {
+		c.lastError = err.Error()
+		c.dropped++
+		log.Printf("failed to persist outbound message %s: %v", messageID, err)
+		return false
+	}
+	c.seq = nextSeq
+	c.queue = nextQueue
+	return true
+}
+
+func (c *Client) persistOutboxLocked(seq int64, queue []OutboundMessage, dropped int64) error {
+	err := saveOutbox(c.outboxPath, outboxState{Version: 1, Seq: seq, Dropped: dropped, Queue: queue})
+	c.outboxHealthy = err == nil
+	if err != nil { c.lastError = err.Error() }
+	return err
 }
 
 func (c *Client) post(ctx context.Context, path string, body interface{}) (int, error) {
@@ -212,10 +355,14 @@ func (c *Client) registerLoop() {
 }
 
 func (c *Client) doRegister() time.Duration {
-	c.mu.Lock()
-	if c.dev.Status == "OFFLINE" {
-		c.mu.Unlock()
+	if c.dev.StatusValue() == "OFFLINE" {
 		return time.Second
+	}
+	c.mu.Lock()
+	if c.transport == "mqtt" {
+		// Every registration/heartbeat must be accepted by the gateway before
+		// the client considers itself registered and resumes queue delivery.
+		c.registered = false
 	}
 	c.mu.Unlock()
 
@@ -225,28 +372,47 @@ func (c *Client) doRegister() time.Duration {
 		"endpoint": c.endpoint,
 		"info":     c.dev.Info(),
 		"state":    c.dev.StateView()["state"],
-		"status":   c.dev.Status,
+		"status":   c.dev.StatusValue(),
 		"ts":       time.Now().UTC().Format(time.RFC3339Nano),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), PostTimeout)
 	defer cancel()
 
-	statusCode, err := c.post(ctx, "/devices/register", body)
+	statusCode := 0
+	var err error
+	if c.transport == "mqtt" {
+		err = c.publishMQTT(ctx, "/devices/register", body)
+		if err == nil {
+			err = c.waitForMQTTRegistration(ctx)
+		}
+		if err == nil {
+			statusCode = http.StatusAccepted
+		}
+	} else {
+		statusCode, err = c.post(ctx, "/devices/register", body)
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if err == nil && statusCode >= 200 && statusCode < 300 {
 		if !c.registered {
-			log.Printf(`{"level":"info","msg":"registered with gateway","gateway":"%s"}`, c.gatewayURL)
+			log.Printf(`{"level":"info","msg":"registered with gateway","transport":"%s","gateway":"%s"}`, c.transport, c.gatewayURL)
 		}
 		c.registered = true
 		c.registerFailures = 0
+		c.flushFailures = 0
+		c.nextFlushAt = time.Time{}
+		c.lastError = ""
 		return c.registerIntervalSec
 	}
 
+	if err != nil { c.lastError = err.Error() } else { c.lastError = fmt.Sprintf("registration rejected with HTTP status %d", statusCode) }
 	c.registerFailures++
+	if c.transport == "mqtt" {
+		log.Printf("MQTT registration failed for device %s (attempt %d): %v", c.dev.DeviceID, c.registerFailures, err)
+	}
 	backoffSec := math.Min(30, math.Pow(2, math.Min(float64(c.registerFailures), 5)))
 	return time.Duration(backoffSec) * time.Second
 }
@@ -260,9 +426,23 @@ func (c *Client) flushLoop() {
 		case <-c.stopChan:
 			return
 		case <-ticker.C:
-			c.doFlush()
+			c.mu.Lock()
+			retryLater := !c.nextFlushAt.IsZero() && time.Now().Before(c.nextFlushAt)
+			c.mu.Unlock()
+			if !retryLater {
+				c.doFlush()
+			}
 		}
 	}
+}
+
+func (c *Client) scheduleFlushRetryLocked() {
+	multiplier := math.Pow(2, math.Min(float64(c.flushFailures-1), 10))
+	delay := time.Duration(float64(FlushInterval) * multiplier)
+	if delay > MaxBackoff {
+		delay = MaxBackoff
+	}
+	c.nextFlushAt = time.Now().Add(delay)
 }
 
 func (c *Client) doFlush() {
@@ -276,21 +456,61 @@ func (c *Client) doFlush() {
 		c.mu.Unlock()
 
 		ctx, cancel := context.WithTimeout(context.Background(), PostTimeout)
-		statusCode, err := c.post(ctx, msg.Path, msg.Body)
+		statusCode := 0
+		var err error
+		if c.transport == "mqtt" {
+			err = c.publishMQTTAndWaitAck(ctx, msg)
+			if err == nil {
+				statusCode = http.StatusAccepted
+			}
+		} else {
+			statusCode, err = c.post(ctx, msg.Path, msg.Body)
+		}
 		cancel()
 
 		c.mu.Lock()
-		if err != nil || statusCode == 429 || statusCode >= 500 {
+		if errors.Is(err, errMQTTRejected) {
+			c.lastError = err.Error()
+			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
+			nextDropped := c.dropped + 1
+			if persistErr := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); persistErr != nil {
+				c.flushFailures++
+				c.scheduleFlushRetryLocked()
+				log.Printf("failed to persist MQTT rejection: %v", persistErr)
+				c.mu.Unlock()
+				return
+			}
+			c.queue = nextQueue
+			c.dropped = nextDropped
+			c.flushFailures = 0
+			c.nextFlushAt = time.Time{}
+			c.mu.Unlock()
+			continue
+		}
+		if err != nil || statusCode == 408 || statusCode == 429 || statusCode >= 500 {
+			if err != nil { c.lastError = err.Error() } else { c.lastError = fmt.Sprintf("transient gateway HTTP status %d", statusCode) }
 			c.flushFailures++
+			c.scheduleFlushRetryLocked()
 			c.mu.Unlock()
 			return
 		}
 
 		if statusCode >= 200 && statusCode < 300 {
 			if len(c.queue) > 0 {
-				c.queue = c.queue[1:]
+				nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
+				if err := c.persistOutboxLocked(c.seq, nextQueue, c.dropped); err != nil {
+					c.flushFailures++
+					c.scheduleFlushRetryLocked()
+					log.Printf("failed to persist outbox acknowledgement: %v", err)
+					c.mu.Unlock()
+					return
+				}
+				c.queue = nextQueue
 			}
 			c.flushFailures = 0
+			c.nextFlushAt = time.Time{}
+			c.lastSuccessAt = time.Now().UTC()
+			c.lastError = ""
 			c.mu.Unlock()
 			continue
 		}
@@ -304,10 +524,23 @@ func (c *Client) doFlush() {
 		}
 
 		// Any other 4xx: drop message
+		c.lastError = fmt.Sprintf("gateway permanently rejected message with HTTP status %d", statusCode)
 		log.Printf(`{"level":"warn","msg":"gateway refused a message, dropping it","status":%d}`, statusCode)
 		if len(c.queue) > 0 {
-			c.queue = c.queue[1:]
+			nextQueue := append([]OutboundMessage(nil), c.queue[1:]...)
+			nextDropped := c.dropped + 1
+			if err := c.persistOutboxLocked(c.seq, nextQueue, nextDropped); err != nil {
+				c.flushFailures++
+				c.scheduleFlushRetryLocked()
+				log.Printf("failed to persist rejected-message removal: %v", err)
+				c.mu.Unlock()
+				return
+			}
+			c.queue = nextQueue
+			c.dropped = nextDropped
 		}
+		c.flushFailures = 0
+		c.nextFlushAt = time.Time{}
 		c.mu.Unlock()
 	}
 }
@@ -315,12 +548,36 @@ func (c *Client) doFlush() {
 func (c *Client) Stats() ClientStats {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return ClientStats{
+	stats := ClientStats{
 		Registered: c.registered,
 		Queued:     len(c.queue),
 		Dropped:    c.dropped,
 		Seq:        c.seq,
+		OutboxPath: c.outboxPath,
+		OutboxHealthy: c.outboxHealthy,
+		FlushFailures: c.flushFailures,
+		RegisterFailures: c.registerFailures,
+		LastError: c.lastError,
 	}
+	if !c.lastSuccessAt.IsZero() {
+		stats.LastSuccessAt = c.lastSuccessAt.Format(time.RFC3339Nano)
+	}
+	if !c.nextFlushAt.IsZero() {
+		stats.NextRetryAt = c.nextFlushAt.Format(time.RFC3339Nano)
+	}
+	if len(c.queue) > 0 {
+		if ts, ok := c.queue[0].Body["ts"].(string); ok {
+			if queuedAt, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+				stats.OldestQueuedAt = queuedAt.Format(time.RFC3339Nano)
+				stats.OldestMessageAgeSeconds = time.Since(queuedAt).Seconds()
+			}
+		}
+	}
+	return stats
+}
+
+func (c *Client) InitializationError() error {
+	return c.outboxErr
 }
 
 func (c *Client) IsRegistered() bool {

@@ -73,6 +73,11 @@ const config = {
             label: 'GitHub',
             position: 'right',
           },
+          {
+            href: 'https://github.com/aprountzos/fogsense-device-runtime/releases',
+            label: 'Releases',
+            position: 'right',
+          },
         ],
       },
       footer: {

@@ -10,16 +10,15 @@ info:
 
     | Gateway answers | The device |
     |---|---|
-    | `2xx` | considers the message delivered and moves on to the next one |
+    | `2xx` | considers the gateway application to have accepted the message and removes it from the outbox |
     | `404` | assumes the gateway no longer knows it: **re-registers**, then re-sends the same message |
-    | `429`, `5xx`, timeout, connection error | keeps the message and retries later (exponential backoff, max 30 s) |
+    | `408`, `429`, `5xx`, timeout, connection error | keeps the message and retries later (exponential backoff, max 30 s) |
     | any other `4xx` (`400`, `401`, `403`, `413`...) | considers the message invalid or forbidden and **drops it** |
 
-    * Messages are sent **in order** and every telemetry batch / event carries `(bootId, seq)`.
-      `seq` starts at 1 on every start of the container (new `bootId`) and increases by 1 for
-      each telemetry batch **and** each event. Delivery is **at-least-once**: a retry after a lost
-      response can deliver the same `(deviceId, bootId, seq)` twice, so the gateway must be idempotent.
-    * While the gateway is unreachable the device buffers up to 500 messages (oldest dropped first).
+    * Messages are sent **in order** and every telemetry batch / event carries a stable `messageId` plus `(bootId, seq)`.
+      `seq` is persisted and increases across container restarts. Recovered messages retain their sequence and stable `messageId`, while their `bootId` is rebound to the current boot. Sequence numbers increase by 1 for each telemetry batch and each event. Delivery is **at-least-once**: a retry after a lost
+      response can deliver the same `(deviceId, messageId)` twice, so the gateway must deduplicate before applying side effects.
+    * While the gateway is unreachable the device stores up to 500 messages in its disk-backed outbox. When full, new messages are rejected and counted; existing queued messages are not silently evicted. Set `OUTBOX_PATH` to configure the file path.
     * The device **re-registers every `REGISTER_INTERVAL_SEC` (default 30 s)** as a heartbeat,
       except while it is OFFLINE (then it stays silent). A gateway can therefore detect a lost
       device by the absence of heartbeats and telemetry.
@@ -88,9 +87,10 @@ components:
   schemas:
     Envelope:
       type: object
-      required: [deviceId, bootId, seq, ts]
+      required: [deviceId, bootId, messageId, seq, ts]
       properties:
         deviceId: { type: string }
+        messageId: { type: string, format: uuid, description: Stable across retries and process restarts. }
         bootId: { type: string, description: Unique per start of the container. }
         seq: { type: integer, minimum: 1 }
         ts: { type: string, format: date-time, description: When the message was generated. }

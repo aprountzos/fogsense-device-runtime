@@ -18,6 +18,11 @@ services:
     build: .
     entrypoint: ["fogsense-mock-gateway"]
     command: ["--port", "8081", "--device-token", "demo-token"]
+    environment:
+      GATEWAY_STORE_PATH: /data/gateway.db
+      PORT: "8081"
+    volumes:
+      - mock-gateway-data:/data
     ports:
       - "8081:8081"
 
@@ -30,8 +35,11 @@ services:
       DEVICE_TOKEN: demo-token
       ADVERTISE_URL: http://light-1:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
+      OUTBOX_PATH: /data/outbox.json
+      DEVICE_STATE_PATH: /data/device-state.db
     volumes:
       - ./examples/smart-light.yaml:/config/spec.yaml:ro
+      - light-1-outbox:/data
     ports:
       - "8080:8080"
 
@@ -45,7 +53,14 @@ services:
       ADVERTISE_URL: http://sensor-1:8080
       DEVICE_SPEC_FILE: /config/spec.yaml
       TIME_SCALE: "2"
+      OUTBOX_PATH: /data/outbox.json
+      DEVICE_STATE_PATH: /data/device-state.db
     volumes:
       - ./examples/temp-sensor.yaml:/config/spec.yaml:ro
+      - sensor-1-outbox:/data
     ports:
       - "8082:8080"
+volumes:
+  light-1-outbox:
+  sensor-1-outbox:
+  mock-gateway-data:

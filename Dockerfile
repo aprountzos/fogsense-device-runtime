@@ -1,5 +1,5 @@
 # FogSense device runtime: one container = one simulated device.
-# Multi-stage build producing a lightweight static binary (< 18 MB total image).
+# Multi-stage build producing lightweight static runtime and mock gateway binaries.
 
 # Stage 1: Build static binary
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
@@ -14,16 +14,19 @@ COPY cmd/ ./cmd/
 COPY pkg/ ./pkg/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-device-runtime . && \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-mock-gateway ./cmd/mock-gateway
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-mock-gateway ./cmd/mock-gateway && \
+    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o /fogsense-mock-mqtt-gateway ./cmd/mock-mqtt-gateway
 
 # Stage 2: Minimal runtime image
 FROM alpine:3.20
 
 RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -S app && adduser -S app -G app
+    addgroup -S app && adduser -S app -G app && \
+    mkdir -p /data && chown app:app /data
 
 COPY --from=builder /fogsense-device-runtime /usr/local/bin/fogsense-device-runtime
 COPY --from=builder /fogsense-mock-gateway /usr/local/bin/fogsense-mock-gateway
+COPY --from=builder /fogsense-mock-mqtt-gateway /usr/local/bin/fogsense-mock-mqtt-gateway
 
 USER app
 EXPOSE 8080
