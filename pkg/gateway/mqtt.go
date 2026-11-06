@@ -241,7 +241,7 @@ func (c *Client) handleMQTTCommand(received paho.PublishReceived) bool {
 	status, response := c.dev.ExecuteCommand(payload)
 	if status == 503 && response["reason"] == "PERSISTENCE_FAILED" {
 		// Keep the broker delivery unacknowledged and retry the durable commit.
-		go c.retryMQTTCommandDelivery(payload, received.Client, received.Packet)
+		c.startMQTTCommandRetry(payload, received.Client, received.Packet)
 		return false
 	}
 	var command map[string]interface{}
@@ -252,10 +252,24 @@ func (c *Client) handleMQTTCommand(received paho.PublishReceived) bool {
 	// the inbound broker delivery. The main loop transfers it to the outbox.
 	if _, err := c.dev.QueueCommandAck(commandID, status, response); err != nil {
 		log.Printf("cannot persist MQTT command acknowledgement for %q: %v; will retry", commandID, err)
-		go c.retryMQTTCommandDelivery(payload, received.Client, received.Packet)
+		c.startMQTTCommandRetry(payload, received.Client, received.Packet)
 		return false
 	}
 	return true
+}
+
+func (c *Client) startMQTTCommandRetry(payload []byte, mqttClient *paho.Client, packet *paho.Publish) {
+	c.mu.Lock()
+	if c.stopped {
+		c.mu.Unlock()
+		return
+	}
+	c.commandRetryWG.Add(1)
+	c.mu.Unlock()
+	go func() {
+		defer c.commandRetryWG.Done()
+		c.retryMQTTCommandDelivery(payload, mqttClient, packet)
+	}()
 }
 
 func (c *Client) retryMQTTCommandDelivery(payload []byte, mqttClient *paho.Client, packet *paho.Publish) {
