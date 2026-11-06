@@ -289,9 +289,12 @@ If `DEVICE_TOKEN` is enabled, add `-H 'X-Device-Token: <token>'` to each request
 docker build -t fogsense-device-runtime .
 
 docker run --rm --name light-1 --network <your-gateway-network> \
+  -v fogsense-light-data:/data \
   -e DEVICE_ID=light-1 \
   -e GATEWAY_URL=http://fog-gateway:8081 \
   -e DEVICE_TOKEN=<device-token> \
+  -e OUTBOX_PATH=/data/outbox.json \
+  -e DEVICE_STATE_PATH=/data/device-state.db \
   -e DEVICE_SPEC_B64="$(base64 -w0 examples/smart-light.yaml)" \
   fogsense-device-runtime
 ```
