@@ -402,14 +402,10 @@ func (d *Device) Tick(dtRealSec float64) []Reading {
 	if d.Status == "OFFLINE" {
 		if d.VT >= d.OfflineUntil {
 			d.Status, d.OfflineUntil = "ONLINE", 0
-			if err := d.persistRuntimeLocked(); err != nil {
-				rollback()
-				return nil
-			}
 			for _, metric := range d.Metrics {
 				metric.NextAt = d.VT
 			}
-			// Persist the reset emission schedule before announcing recovery.
+			// Persist recovery and the reset emission schedule atomically.
 			if err := d.persistRuntimeLocked(); err != nil {
 				rollback()
 				return nil
