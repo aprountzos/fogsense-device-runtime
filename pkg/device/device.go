@@ -939,6 +939,7 @@ func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 	durationOrDefault:=func(def float64)float64{if duration!=nil{return *duration};return def}
 	oldStatus,oldOfflineUntil,oldSpike,oldFlood:=d.Status,d.OfflineUntil,d.Spike,d.Flood
 	oldPendingEvents := clonePendingEvents(d.PendingEventBatches)
+	oldTelemetry := d.telemetrySnapshot()
 	reason:=""
 	switch action {
 	case "OFFLINE":
@@ -965,6 +966,7 @@ func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 		if _, err := d.appendPendingEventLocked(event); err != nil {
 			d.Status,d.OfflineUntil,d.Spike,d.Flood=oldStatus,oldOfflineUntil,oldSpike,oldFlood
 			d.PendingEventBatches = oldPendingEvents
+			_ = d.restoreTelemetry(oldTelemetry)
 			return 503,map[string]interface{}{"error":"pending event queue is full","reason":"PENDING_EVENT_QUEUE_FULL"}
 		}
 		statusEvent = &event
@@ -972,6 +974,7 @@ func (d *Device) ApplyFault(raw []byte) (int, map[string]interface{}) {
 	if err:=d.persistRuntimeLocked();err!=nil{
 		d.Status,d.OfflineUntil,d.Spike,d.Flood=oldStatus,oldOfflineUntil,oldSpike,oldFlood
 		d.PendingEventBatches = oldPendingEvents
+		_ = d.restoreTelemetry(oldTelemetry)
 		return 503,map[string]interface{}{"error":"runtime state could not be persisted","reason":"PERSISTENCE_FAILED"}
 	}
 	if statusEvent != nil { d.emit(*statusEvent) }
