@@ -63,3 +63,59 @@ func TestFaultPersistenceFailureRollsBack(t *testing.T) {
 	if status!=503||body["reason"]!="PERSISTENCE_FAILED"{t.Fatalf("expected persistence failure: %d %+v",status,body)}
 	if d.Status!="ONLINE"{t.Fatalf("fault applied despite persistence failure: %s",d.Status)}
 }
+
+func TestPendingCommandAcknowledgementAndStateEventSurviveRestart(t *testing.T) {
+	store := &testStateStore{}
+	cfg := Config{DeviceID: "light-1", Spec: testPersistedSpec(t), Store: store}
+
+	first, err := NewDeviceWithError(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, response := first.ExecuteCommand([]byte(`{"commandId":"mqtt-command-1","name":"TURN_ON"}`))
+	if status != 200 {
+		t.Fatalf("execute command: status=%d response=%+v", status, response)
+	}
+	messageID, err := first.QueueCommandAck("mqtt-command-1", status, response)
+	if err != nil {
+		t.Fatalf("queue command acknowledgement: %v", err)
+	}
+
+	second, err := NewDeviceWithError(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acks := second.PendingCommandAcks()
+	if len(acks) != 1 {
+		t.Fatalf("restored command acknowledgements = %d, want 1", len(acks))
+	}
+	if acks[0].MessageID != messageID || acks[0].CommandID != "mqtt-command-1" {
+		t.Fatalf("restored acknowledgement = %+v", acks[0])
+	}
+	events := second.PendingEvents()
+	if len(events) != 1 {
+		t.Fatalf("restored events = %d, want 1", len(events))
+	}
+	if events[0].Event.Type != "STATE_CHANGED" {
+		t.Fatalf("restored event type = %q, want STATE_CHANGED", events[0].Event.Type)
+	}
+	if events[0].Event.Cause["commandId"] != "mqtt-command-1" {
+		t.Fatalf("restored event cause = %+v", events[0].Event.Cause)
+	}
+}
+
+func TestQueueCommandAckRollsBackWhenPersistenceFails(t *testing.T) {
+	store := &testStateStore{}
+	d, err := NewDeviceWithError(Config{DeviceID: "light-1", Spec: testPersistedSpec(t), Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.fail = true
+
+	if _, err := d.QueueCommandAck("mqtt-command-2", 200, map[string]interface{}{"status": "EXECUTED"}); err == nil {
+		t.Fatal("expected command acknowledgement persistence to fail")
+	}
+	if pending := d.PendingCommandAcks(); len(pending) != 0 {
+		t.Fatalf("pending acknowledgements after failed persistence = %d, want 0", len(pending))
+	}
+}
