@@ -100,6 +100,8 @@ The local device HTTP API is a separate security boundary from the device-to-gat
 
 - Delivery is **at least once**, not exactly once. Consumers must be idempotent.
 - The device outbox is durable only when its file or mounted volume survives container replacement. Deleting a named volume deletes pending messages.
+- Device SQLite checkpoints include metric progression, last readings, and telemetry PRNG state. Generated telemetry batches remain in a bounded device-side pending queue until their stable message IDs are durably handed to the transport outbox; if handoff cannot complete, telemetry generation applies backpressure.
+- MQTT inbound QoS 1 command deliveries use manual broker acknowledgement. The device acknowledges a command only after command execution/idempotency state is committed and the result is durably queued in the outbound outbox. A resumable 24-hour MQTT session allows the broker to redeliver unacknowledged commands after process restart, provided the broker retains its session state.
 - One runtime process must own a given device outbox path; do not mount the same file into multiple replicas.
 - The reference gateways persist accepted telemetry, events, and command acknowledgements together with their deduplication keys in SQLite. Their in-memory device aggregates/debug views are not yet reconstructed from that journal after restart.
 - The local anonymous Mosquitto profile is for development only. Use the secure profile or an appropriately managed broker in production. The HTTP mock gateway accepts one shared demo token; production gateways must provision and verify unique per-device credentials.
