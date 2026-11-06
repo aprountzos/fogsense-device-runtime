@@ -18,7 +18,7 @@ services:
   mqtt-gateway:
     build: .
     entrypoint: ["fogsense-mock-mqtt-gateway"]
-    command: ["--broker-url", "mqtts://mqtt-broker:8883", "--username", "fogsense-mock-gateway", "--password", "${MQTT_GATEWAY_PASSWORD:?set MQTT_GATEWAY_PASSWORD}", "--ca-file", "/mosquitto/certs/ca.crt", "--dedupe-file", "/data/dedupe.json"]
+    command: ["--broker-url", "mqtts://mqtt-broker:8883", "--username", "fogsense-mock-gateway", "--password", "${MQTT_GATEWAY_PASSWORD:?set MQTT_GATEWAY_PASSWORD}", "--ca-file", "/mosquitto/certs/ca.crt", "--store-file", "/data/mqtt-gateway.db"]
     depends_on: [mqtt-broker]
     volumes:
       - mqtt-secure-gateway-data:/data
