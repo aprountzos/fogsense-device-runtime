@@ -57,6 +57,7 @@ func (c *Client) startMQTT() {
 		ConnectPassword:               []byte(c.mqttPassword),
 		ClientConfig: paho.ClientConfig{
 			ClientID: c.mqttClientID,
+			EnableManualAcknowledgment: true,
 			OnPublishReceived: []func(paho.PublishReceived) (bool, error){
 				func(received paho.PublishReceived) (bool, error) {
 					if strings.HasSuffix(received.Packet.Topic, "/register/ack") {
@@ -69,6 +70,9 @@ func (c *Client) startMQTT() {
 						}
 					} else if strings.HasSuffix(received.Packet.Topic, "/delivery/ack") {
 						c.handleMQTTDeliveryAck(received.Packet.Payload)
+					}
+					if err := received.Client.Ack(received.Packet); err != nil {
+						return false, fmt.Errorf("acknowledge MQTT delivery: %w", err)
 					}
 					return true, nil
 				},
