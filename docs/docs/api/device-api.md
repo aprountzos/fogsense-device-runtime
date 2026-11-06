@@ -168,7 +168,7 @@ X-Control-Token: <token>
 
 ### `GET /control/status`
 
-Returns internal device and gateway client status, including the number of telemetry batches waiting for durable handoff to the transport outbox.
+Returns internal device and gateway client status, including the number of telemetry batches and command acknowledgements waiting for durable handoff to the transport outbox.
 
 **Response (200):**
 ```json
@@ -178,6 +178,7 @@ Returns internal device and gateway client status, including the number of telem
   "deviceTimeSec": 142.5,
   "offlineUntil": null,
   "pendingTelemetryBatches": 0,
+  "pendingCommandAcks": 0,
   "spike": null,
   "flood": null,
   "gateway": {
