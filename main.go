@@ -253,7 +253,9 @@ func main() {
 
 	// Start Simulation Loop (every 250ms)
 	stopLoop := make(chan struct{})
+	loopDone := make(chan struct{})
 	go func() {
+		defer close(loopDone)
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -330,6 +332,7 @@ func main() {
 
 	logJSON("info", "shutting down", nil)
 	close(stopLoop)
+	<-loopDone
 	gwClient.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
